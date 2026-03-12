@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="page-header fade-in">
+    <h1>🎭 Honeypot Deception System</h1>
+    <p>Decoy services deployed to attract and profile attackers</p>
+</div>
+
+<!-- Summary Cards -->
+<div class="stat-grid fade-in" style="grid-template-columns:repeat(3,1fr);margin-bottom:24px">
+    <div class="stat-card" style="--card-accent:#8b5cf6">
+        <div class="stat-label">Total Honeypots</div>
+        <div class="stat-value" id="hp-total" style="color:#8b5cf6">--</div>
+    </div>
+    <div class="stat-card" style="--card-accent:#22c55e">
+        <div class="stat-label">Active</div>
+        <div class="stat-value" id="hp-active" style="color:#22c55e;font-size:26px">--</div>
+    </div>
+    <div class="stat-card" style="--card-accent:#ef4444">
+        <div class="stat-label">Triggered</div>
+        <div class="stat-value" id="hp-triggered" style="color:#ef4444;font-size:26px">--</div>
+    </div>
+</div>
+
+<!-- Honeypot Cards Grid -->
+<div class="section-title">Deployed Traps</div>
+<div class="honeypot-grid fade-in" id="honeypotGrid"></div>
+
+<!-- Honeypot Table -->
+<div class="section-title" style="margin-top:32px">Detailed Log</div>
+<div class="card fade-in">
+    <table class="data-table" id="honeypotTable">
+        <thead>
+            <tr>
+                <th>Honeypot ID</th>
+                <th>Service</th>
+                <th>Status</th>
+                <th>Interactions</th>
+                <th>Last Trigger</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+</div>
+
+<script src="{{ url_for('static', filename='js/honeypots.js') }}"></script>
+
+{% endblock %}

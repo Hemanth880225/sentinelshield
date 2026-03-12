@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="page-header fade-in">
+    <h1>⚠ Threat Intelligence</h1>
+    <p>Real-time detection and classification of attack vectors targeting your network</p>
+</div>
+
+<!-- Threat Summary Cards -->
+<div class="stat-grid fade-in" style="grid-template-columns:repeat(4,1fr)">
+    <div class="stat-card" style="--card-accent:#ef4444">
+        <div class="stat-label">Total Threats</div>
+        <div class="stat-value" id="threat-total" style="color:#ef4444">--</div>
+    </div>
+    <div class="stat-card" style="--card-accent:#ef4444">
+        <div class="stat-label">High Severity</div>
+        <div class="stat-value" id="threat-high" style="color:#ef4444;font-size:26px">--</div>
+    </div>
+    <div class="stat-card" style="--card-accent:#f59e0b">
+        <div class="stat-label">Medium Severity</div>
+        <div class="stat-value" id="threat-medium" style="color:#f59e0b;font-size:26px">--</div>
+    </div>
+    <div class="stat-card" style="--card-accent:#22c55e">
+        <div class="stat-label">Low Severity</div>
+        <div class="stat-value" id="threat-low" style="color:#22c55e;font-size:26px">--</div>
+    </div>
+</div>
+
+<!-- Chart -->
+<div class="chart-grid fade-in" style="grid-template-columns:1fr">
+    <div class="chart-card">
+        <h3>Attack Type Distribution</h3>
+        <canvas id="threatBarChart" height="100"></canvas>
+    </div>
+</div>
+
+<!-- Threat Table -->
+<div class="section-title">Active Threat Feed</div>
+
+<div class="card fade-in">
+    <table class="data-table" id="threatTable">
+        <thead>
+            <tr>
+                <th>Time</th>
+                <th>Source IP</th>
+                <th>Attack Type</th>
+                <th>Target Device</th>
+                <th>Severity</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="{{ url_for('static', filename='js/threats.js') }}"></script>
+
+{% endblock %}

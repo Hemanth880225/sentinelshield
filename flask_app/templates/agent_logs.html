@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="page-header fade-in">
+    <h1>🤖 Sentinel AI Decision Logs</h1>
+    <p>Autonomous agent decision audit trail and activity monitor</p>
+</div>
+
+<!-- Agent Status -->
+<div class="stat-grid fade-in" style="grid-template-columns:repeat(3,1fr);margin-bottom:24px">
+    <div class="stat-card" style="--card-accent:#22c55e">
+        <div class="stat-label">Agent Status</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+            <span class="status-dot"
+                style="width:8px;height:8px;border-radius:50%;background:#22c55e;animation:dotBlink 1.5s infinite"></span>
+            <span style="color:#22c55e;font-weight:700;font-size:16px">ACTIVE</span>
+        </div>
+    </div>
+    <div class="stat-card" style="--card-accent:#38bdf8">
+        <div class="stat-label">Total Decisions</div>
+        <div class="stat-value" id="log-count" style="font-size:26px">--</div>
+    </div>
+    <div class="stat-card" style="--card-accent:#8b5cf6">
+        <div class="stat-label">AI Model</div>
+        <div style="margin-top:8px;color:#8b5cf6;font-weight:600;font-size:14px">SentinelNet v2.0</div>
+    </div>
+</div>
+
+<!-- Terminal Log -->
+<div class="log-terminal fade-in">
+    <div class="log-terminal-header">
+        <div class="terminal-dots">
+            <span></span><span></span><span></span>
+        </div>
+        <span class="terminal-title">sentinel-agent@soc:~</span>
+        <span class="agent-blink">● AI ACTIVE</span>
+    </div>
+    <ul class="log-list" id="logList"></ul>
+</div>
+
+<script src="{{ url_for('static', filename='js/agent_logs.js') }}"></script>
+
+{% endblock %}

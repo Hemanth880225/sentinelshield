@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SentinelShield | Autonomous IoT Defense</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&family=JetBrains+Mono:wght@400;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/home.css') }}">
+
+</head>
+
+<body>
+
+    <canvas id="bgCanvas"></canvas>
+    <div class="scanline"></div>
+
+    <div class="container">
+
+        <!-- Header -->
+        <div class="header">
+            <div class="shield-glow">
+                <img src="{{ url_for('static', filename='images/logo.png') }}" alt="SentinelShield" width="56" height="56" style="filter:drop-shadow(0 0 12px rgba(56,189,248,0.5));">
+            </div>
+            <h1>SENTINEL<span>SHIELD</span></h1>
+            <p class="tagline">Autonomous AI Security for Home IoT Networks</p>
+            <div class="status-line">
+                <span class="pulse-dot"></span>
+                <span class="status-text">SYSTEM ACTIVE — ALL MODULES OPERATIONAL</span>
+            </div>
+        </div>
+
+        <!-- Feature Cards -->
+        <div class="features">
+
+            <a href="/dashboard" class="feature-card primary-card">
+                <div class="card-icon">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="1.5"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="3" width="7" height="7" />
+                        <rect x="14" y="3" width="7" height="7" />
+                        <rect x="14" y="14" width="7" height="7" />
+                        <rect x="3" y="14" width="7" height="7" />
+                    </svg>
+                </div>
+                <h3>SOC Dashboard</h3>
+                <p>Real-time security overview & analytics</p>
+                <span class="card-arrow">→</span>
+            </a>
+
+            <a href="/traffic" class="feature-card">
+                <div class="card-icon">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="1.5"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                    </svg>
+                </div>
+                <h3>Live Traffic</h3>
+                <p>Monitor network packet flow</p>
+                <span class="card-arrow">→</span>
+            </a>
+
+            <a href="/threats" class="feature-card">
+                <div class="card-icon">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="1.5"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path
+                            d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                        <line x1="12" y1="9" x2="12" y2="13" />
+                        <line x1="12" y1="17" x2="12.01" y2="17" />
+                    </svg>
+                </div>
+                <h3>Threat Intel</h3>
+                <p>Detect & classify attack vectors</p>
+                <span class="card-arrow">→</span>
+            </a>
+
+            <a href="/honeypots" class="feature-card">
+                <div class="card-icon">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="1.5"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10" />
+                        <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+                        <line x1="2" y1="12" x2="22" y2="12" />
+                    </svg>
+                </div>
+                <h3>Honeypots</h3>
+                <p>Deception traps & attacker profiling</p>
+                <span class="card-arrow">→</span>
+            </a>
+
+            <a href="/agent_logs" class="feature-card">
+                <div class="card-icon">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="1.5"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                        <line x1="8" y1="21" x2="16" y2="21" />
+                        <line x1="12" y1="17" x2="12" y2="21" />
+                    </svg>
+                </div>
+                <h3>AI Agent Logs</h3>
+                <p>Autonomous decision audit trail</p>
+                <span class="card-arrow">→</span>
+            </a>
+
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <p>SentinelPi • Agentic AI Cyber Defense Platform • <span id="clock"></span></p>
+        </div>
+
+    </div>
+
+    <script>
+        /* ---- Background Particles ---- */
+        const canvas = document.getElementById('bgCanvas');
+        const ctx = canvas.getContext('2d');
+        let particles = [];
+
+        function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+        resize();
+        window.addEventListener('resize', resize);
+
+        class P {
+            constructor() {
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.vx = (Math.random() - 0.5) * 0.3;
+                this.vy = (Math.random() - 0.5) * 0.3;
+                this.r = Math.random() * 1.2 + 0.3;
+                this.o = Math.random() * 0.3 + 0.1;
+            }
+            update() {
+                this.x += this.vx; this.y += this.vy;
+                if (this.x < 0 || this.x > canvas.width) this.vx *= -1;
+                if (this.y < 0 || this.y > canvas.height) this.vy *= -1;
+            }
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(56,189,248,${this.o})`;
+                ctx.fill();
+            }
+        }
+
+        for (let i = 0; i < 80; i++) particles.push(new P());
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            particles.forEach(p => { p.update(); p.draw(); });
+            for (let i = 0; i < particles.length; i++) {
+                for (let j = i + 1; j < particles.length; j++) {
+                    const dx = particles[i].x - particles[j].x, dy = particles[i].y - particles[j].y;
+                    const d = Math.sqrt(dx * dx + dy * dy);
+                    if (d < 120) {
+                        ctx.beginPath();
+                        ctx.strokeStyle = `rgba(56,189,248,${0.08 * (1 - d / 120)})`;
+                        ctx.lineWidth = 0.4;
+                        ctx.moveTo(particles[i].x, particles[i].y);
+                        ctx.lineTo(particles[j].x, particles[j].y);
+                        ctx.stroke();
+                    }
+                }
+            }
+            requestAnimationFrame(animate);
+        }
+        animate();
+
+        /* ---- Clock ---- */
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('clock').textContent = now.toLocaleTimeString('en-US', { hour12: false });
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+    </script>
+
+</body>
+
+</html>

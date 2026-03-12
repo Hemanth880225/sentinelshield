@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<!-- Page Header -->
+<div class="page-header fade-in">
+    <h1>Security Overview</h1>
+    <p>Real-time monitoring of your IoT network defense posture</p>
+</div>
+
+<!-- Stat Cards -->
+<div class="stat-grid fade-in">
+
+    <div class="stat-card" style="--card-accent:#38bdf8">
+        <div class="stat-card-header">
+            <span class="stat-label">Devices Online</span>
+            <div class="stat-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="1.5"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                    <line x1="8" y1="21" x2="16" y2="21" />
+                    <line x1="12" y1="17" x2="12" y2="21" />
+                </svg>
+            </div>
+        </div>
+        <div class="stat-value" id="devices_online">--</div>
+        <div class="stat-change neutral">IoT endpoints monitored</div>
+    </div>
+
+    <div class="stat-card" style="--card-accent:#ef4444">
+        <div class="stat-card-header">
+            <span class="stat-label">Threats Detected</span>
+            <div class="stat-icon" style="background:rgba(239,68,68,0.08)">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="1.5"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path
+                        d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                    <line x1="12" y1="9" x2="12" y2="13" />
+                    <line x1="12" y1="17" x2="12.01" y2="17" />
+                </svg>
+            </div>
+        </div>
+        <div class="stat-value" id="threats_detected">--</div>
+        <div class="stat-change down">Active threat vectors</div>
+    </div>
+
+    <div class="stat-card" style="--card-accent:#8b5cf6">
+        <div class="stat-card-header">
+            <span class="stat-label">Active Honeypots</span>
+            <div class="stat-icon" style="background:rgba(139,92,246,0.08)">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="1.5"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+                    <line x1="2" y1="12" x2="22" y2="12" />
+                </svg>
+            </div>
+        </div>
+        <div class="stat-value" id="honeypots_active">--</div>
+        <div class="stat-change neutral">Deception traps deployed</div>
+    </div>
+
+    <div class="stat-card" style="--card-accent:#22c55e">
+        <div class="stat-card-header">
+            <span class="stat-label">Network Status</span>
+            <div class="stat-icon" style="background:rgba(34,197,94,0.08)">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="1.5"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                </svg>
+            </div>
+        </div>
+        <div class="stat-value" id="network_status" style="color:#22c55e">--</div>
+        <div class="stat-change up">All defenses operational</div>
+    </div>
+
+</div>
+
+<!-- Charts -->
+<div class="chart-grid fade-in">
+    <div class="chart-card">
+        <h3>Threat Distribution</h3>
+        <canvas id="threatDonut" height="220"></canvas>
+    </div>
+    <div class="chart-card">
+        <h3>Network Traffic Volume</h3>
+        <canvas id="trafficLine" height="220"></canvas>
+    </div>
+</div>
+
+<!-- Traffic Table -->
+<div class="section-title">Recent Network Traffic</div>
+
+<div class="card fade-in">
+    <table class="data-table" id="trafficTable">
+        <thead>
+            <tr>
+                <th>Time</th>
+                <th>Source</th>
+                <th>Destination</th>
+                <th>Protocol</th>
+                <th>Size</th>
+            </tr>
+        </thead>
+        <tbody id="traffic-body"></tbody>
+    </table>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+
+{% endblock %}

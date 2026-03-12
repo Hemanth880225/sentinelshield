@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="page-header fade-in">
+    <h1>⚡ Live Network Traffic</h1>
+    <p>Monitoring communication between IoT devices and external networks in real-time</p>
+</div>
+
+<!-- Stats Row -->
+<div class="stat-grid fade-in" style="grid-template-columns:repeat(3,1fr);margin-bottom:24px">
+    <div class="stat-card" style="--card-accent:#38bdf8">
+        <div class="stat-label">Active Connections</div>
+        <div class="stat-value" id="conn-count" style="font-size:28px">--</div>
+    </div>
+    <div class="stat-card" style="--card-accent:#06b6d4">
+        <div class="stat-label">Total Bandwidth</div>
+        <div class="stat-value" id="total-bw" style="font-size:28px">--</div>
+    </div>
+    <div class="stat-card" style="--card-accent:#22c55e">
+        <div class="stat-label">Monitoring Status</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+            <span class="status-dot"
+                style="width:8px;height:8px;border-radius:50%;background:#22c55e;animation:dotBlink 1.5s infinite"></span>
+            <span style="color:#22c55e;font-weight:600;font-size:18px">LIVE</span>
+        </div>
+    </div>
+</div>
+
+<!-- Traffic Table -->
+<div class="card fade-in">
+    <div class="card-title">
+        <span class="dot"></span>
+        Packet Stream
+    </div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Time</th>
+                <th>Source</th>
+                <th>Destination</th>
+                <th>Protocol</th>
+                <th>Size</th>
+            </tr>
+        </thead>
+        <tbody id="traffic-monitor">
+            <tr>
+                <td colspan="5" style="text-align:center;color:#475569">Initializing packet capture...</td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+<script src="{{ url_for('static', filename='js/traffic.js') }}"></script>
+
+{% endblock %}
