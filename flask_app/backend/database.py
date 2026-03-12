@@ -1,13 +1,10 @@
 """
 SentinelShield — SQLite Database Module
-Handles connection, schema creation, and initialization.
+In-memory database for Vercel serverless (stateless, read-only filesystem).
+Each cold start creates a fresh DB with seeded demo data.
 """
 
 import sqlite3
-import os
-
-DB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
-DB_PATH = os.path.join(DB_DIR, 'sentinelshield.db')
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS devices (
@@ -44,33 +41,29 @@ CREATE TABLE IF NOT EXISTS agent_logs (
 );
 """
 
+# ── Module-level in-memory connection (persists within a single invocation) ──
+_conn = None
+
+
+def _init_memory_db():
+    """Create an in-memory SQLite DB, apply schema, and seed demo data."""
+    global _conn
+    _conn = sqlite3.connect(":memory:", check_same_thread=False)
+    _conn.row_factory = sqlite3.Row
+    _conn.executescript(SCHEMA_SQL)
+    _conn.commit()
+
+    from flask_app.backend.init_db import seed_data
+    seed_data(_conn)
+
 
 def get_connection():
-    """Return a new SQLite connection with row_factory set."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    """Return the shared in-memory connection, initializing on first call."""
+    if _conn is None:
+        _init_memory_db()
+    return _conn
 
 
 def init_db():
-    """Create the database directory, tables, and seed data if the DB is new."""
-    os.makedirs(DB_DIR, exist_ok=True)
-
-    is_new = not os.path.exists(DB_PATH)
-
-    conn = get_connection()
-    conn.executescript(SCHEMA_SQL)
-    conn.commit()
-
-    # Seed sample data only if fresh database
-    if is_new or _is_empty(conn):
-        from flask_app.backend.init_db import seed_data
-        seed_data(conn)
-
-    conn.close()
-
-
-def _is_empty(conn):
-    """Check if all tables are empty."""
-    cursor = conn.execute("SELECT COUNT(*) FROM devices")
-    return cursor.fetchone()[0] == 0
+    """Compatibility shim — triggers in-memory DB creation."""
+    get_connection()
