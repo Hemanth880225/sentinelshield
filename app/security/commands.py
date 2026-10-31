@@ -5,6 +5,7 @@ import secrets
 import time
 import uuid
 from dataclasses import dataclass
+from typing import Callable, Optional
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
@@ -42,10 +43,12 @@ class CommandVerifier:
                 "issued_at", "expires_at", "nonce")
 
     def __init__(self, public_key: Ed25519PublicKey, tenant_id: str, collector_id: str,
-                 clock=time.time, max_skew: int = 30):
+                 clock=time.time, max_skew: int = 30,
+                 durable_replay_check: Optional[Callable[[str], bool]] = None):
         self._pub, self._tenant, self._collector = public_key, tenant_id, collector_id
         self._clock, self._skew = clock, max_skew
         self._seen: dict[str, int] = {}
+        self._durable_replay_check = durable_replay_check
 
     def verify(self, cmd: SignedCommand) -> dict:
         p = cmd.payload
@@ -62,8 +65,10 @@ class CommandVerifier:
             raise CommandError("issued in future")
         if p["expires_at"] <= now:
             raise CommandError("expired")
-        self._seen = {n: e for n, e in self._seen.items() if e > now}   # purge
+        self._seen = {n: e for n, e in self._seen.items() if e > now}   # purge memory cache
         if p["nonce"] in self._seen:
+            raise CommandError("replay")
+        if self._durable_replay_check and self._durable_replay_check(p.get("id", "")):
             raise CommandError("replay")
         self._seen[p["nonce"]] = p["expires_at"]
         return p

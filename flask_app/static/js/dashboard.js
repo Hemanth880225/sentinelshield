@@ -1,7 +1,7 @@
 /* ============================================
-   SENTINELSHIELD — DASHBOARD JS
+   SENTINELSHIELD — DASHBOARD JS (Secured & Hardened)
    SOC Dashboard Logic with Charts & Counters
-   Integrated with Centralized SentinelAPI
+   Integrated with Centralized SentinelAPI & XSS Sanitization
    ============================================ */
 
 /* ---- Animated Counter ---- */
@@ -27,8 +27,9 @@ function animateCounter(el, target) {
 
 /* ---- Protocol Badge Helper ---- */
 function protocolBadge(proto) {
-    const p = (proto || 'TCP').toUpperCase();
-    return `<span class="badge badge-${p.toLowerCase()}">${p}</span>`;
+    const raw = (proto || 'TCP').toUpperCase();
+    const clean = SentinelAPI.escapeHTML(raw);
+    return `<span class="badge badge-${clean.toLowerCase()}">${clean}</span>`;
 }
 
 
@@ -147,16 +148,28 @@ async function updateDashboard() {
         if (table) {
             table.innerHTML = "";
             if (!traffic || traffic.length === 0) {
-                table.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#475569">No traffic packets captured yet</td></tr>';
+                const emptyRow = document.createElement('tr');
+                const emptyCell = document.createElement('td');
+                emptyCell.colSpan = 5;
+                emptyCell.style.textAlign = 'center';
+                emptyCell.style.color = '#475569';
+                emptyCell.textContent = 'No traffic packets captured yet';
+                emptyRow.appendChild(emptyCell);
+                table.appendChild(emptyRow);
             } else {
                 traffic.forEach(item => {
                     const row = document.createElement('tr');
+                    const timeSafe = SentinelAPI.escapeHTML(item.time);
+                    const srcSafe = SentinelAPI.escapeHTML(item.source);
+                    const dstSafe = SentinelAPI.escapeHTML(item.destination);
+                    const sizeNum = parseInt(item.size, 10) || 64;
+
                     row.innerHTML = `
-                        <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#64748b">${item.time}</td>
-                        <td><code style="color:#e2e8f0">${item.source}</code></td>
-                        <td><code style="color:#e2e8f0">${item.destination}</code></td>
+                        <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#64748b">${timeSafe}</td>
+                        <td><code style="color:#e2e8f0">${srcSafe}</code></td>
+                        <td><code style="color:#e2e8f0">${dstSafe}</code></td>
                         <td>${protocolBadge(item.protocol)}</td>
-                        <td style="font-variant-numeric:tabular-nums">${item.size} B</td>
+                        <td style="font-variant-numeric:tabular-nums">${sizeNum} B</td>
                     `;
                     table.appendChild(row);
                 });
@@ -184,8 +197,8 @@ async function updateDashboard() {
             const counts = { 'Port Scan': 0, 'Brute Force': 0, 'Malware Attempt': 0, 'Suspicious Login': 0 };
             threats.forEach(t => {
                 if (counts[t.type] !== undefined) counts[t.type]++;
-                else if (t.type.includes('Beaconing')) counts['Malware Attempt']++;
-                else if (t.type.includes('DNS')) counts['Suspicious Login']++;
+                else if (t.type && t.type.includes('Beaconing')) counts['Malware Attempt']++;
+                else if (t.type && t.type.includes('DNS')) counts['Suspicious Login']++;
                 else counts['Port Scan']++;
             });
 

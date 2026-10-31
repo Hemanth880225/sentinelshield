@@ -2,17 +2,17 @@
 
 **Agentic AI-Powered Deception Security Platform for Startups**  
 *“Don't Just Block Attackers — Deceive Them”*  
-Version: 2.0 (Cloud-Native Architecture Edition)
+Version: 2.0 (Cloud-Native Architecture Edition — Production Hardened)
 
 ---
 
 ## 1. Executive Summary
 
-SentinelShield is an autonomous network security system engineered specifically for startups, developer labs, and IoT-enabled environments that lack dedicated cybersecurity operations teams. 
+SentinelShield is an autonomous network security platform engineered specifically for startups, developer labs, and IoT-enabled environments that lack dedicated cybersecurity operations teams. 
 
-Unlike traditional passive monitoring systems that merely log events, SentinelShield is **agentic**: it actively detects network threats, correlates risks using statistical and AI-driven models, autonomously decides defensive countermeasures, signs cryptographic security commands using Ed25519, and orchestrates local enforcement and dynamic deception traps in real time.
+Unlike traditional passive monitoring systems that merely log events, SentinelShield is **agentic**: it actively monitors network telemetry, correlates risks using statistical and AI-driven models, autonomously decides defensive countermeasures, signs cryptographic security commands using Ed25519, and orchestrates local enforcement and dynamic deception traps in real time.
 
-This repository represents the unified SentinelShield platform, integrating the established SOC dashboard frontend with the high-performance Python/FastAPI backend and cryptographic local enforcement agent.
+This repository integrates the SOC dashboard frontend with the high-performance Python/FastAPI backend, persistent Ed25519 command signing, multi-tenant isolation, Role-Based Access Control (RBAC), and cryptographic local enforcement.
 
 ---
 
@@ -35,12 +35,15 @@ SentinelShield strictly separates the **Cloud Control Plane** (analysis, intelli
 +-------------------------|-------------------------------------------|-------------------+
                           | TLS 1.3 Telemetry                         | Outbound mTLS     |
                           | (Flows, DNS, Devices)                     | Ed25519 Commands  |
+                          | (Collector Token Auth)                    |                   |
                           v                                           |                   |
 +---------------------------------------------------------------------|-------------------+
 |                            SENTINELSHIELD CONTROL PLANE             |                   |
 |                                                                     |                   |
 |   +-------------------------------------------------------------+   |                   |
 |   |                     FastAPI Backend (:8000)                 |   |                   |
+|   |  - Role-Based Access Control (Admin, Analyst, Viewer, Col)  |   |                   |
+|   |  - Strict Configurable CORS & Authenticated WebSockets      |   |                   |
 |   |  - Ingestion APIs       - Security Engine API               |   |                   |
 |   |  - REST & WebSocket     - Honeypot Controller               |   |                   |
 |   +------------------------------+------------------------------+   |                   |
@@ -62,8 +65,9 @@ SentinelShield strictly separates the **Cloud Control Plane** (analysis, intelli
 |                                  |                                  |                   |
 |                                  v                                  |                   |
 |   +-------------------------------------------------------------+   |                   |
-|   |                Ed25519 Command Signer (Cloud)               +---+                   |
-|   |  - Replay protection (nonces)   - Short TTL expiry          |                       |
+|   |            Persistent Ed25519 Command Signer (Cloud)        +---+                   |
+|   |  - Durable replay protection    - Short TTL expiry          |                       |
+|   |  - Persistent PEM keypair       - Nonce deduplication       |                       |
 |   +-------------------------------------------------------------+                       |
 |                                  |                                                      |
 |                                  v                                                      |
@@ -75,8 +79,9 @@ SentinelShield strictly separates the **Cloud Control Plane** (analysis, intelli
 |                                  |                                                      |
 |                                  v                                                      |
 |   +-------------------------------------------------------------+                       |
-|   |                  Unified Persistence Layer                  |                       |
+|   |                  Unified Multi-Tenant Persistence           |                       |
 |   |           SQLite (default) / PostgreSQL (enterprise)        |                       |
+|   |           Auto-migrating schema with tenant_id isolation    |                       |
 |   +------------------------------+------------------------------+                       |
 +----------------------------------|------------------------------------------------------+
                                    | HTTP / WebSocket
@@ -86,12 +91,13 @@ SentinelShield strictly separates the **Cloud Control Plane** (analysis, intelli
 |                                                                                         |
 |   +-------------------------------------------------------------+                       |
 |   |                   Flask Web Server (:5000)                  |                       |
-|   |  - Preserved SOC Visual Theme  - Reverse Proxy to FastAPI   |                       |
+|   |  - Preserved SOC Visual Theme  - Authenticated Reverse Proxy|                       |
 |   +------------------------------+------------------------------+                       |
 |                                  |                                                      |
 |                                  v                                                      |
 |   +-------------------------------------------------------------+                       |
-|   |                 Centralized JS API Client                   |                       |
+|   |             Hardened JS API Client & XSS Sanitization       |                       |
+|   |  - DOM XSS Sanitization on all tables, cards & badges       |                       |
 |   |  - Live Counters & Donut/Line Charts                        |                       |
 |   |  - Real-Time Packet Stream & MITRE Threat Intel             |                       |
 |   |  - Interactive Deception Trap Probe Simulation              |                       |
@@ -102,257 +108,141 @@ SentinelShield strictly separates the **Cloud Control Plane** (analysis, intelli
 
 ---
 
-## 3. Core Capabilities
+## 3. Security Hardening & Controls
 
-### 1. Intelligent Threat Detection
-Six statistical and algorithmic detectors evaluate sliding telemetry windows:
-* **Port Scan (`T1046`)**: Detects reconnaissance probing across 15+ ports within 60-second windows.
-* **Brute Force (`T1110`)**: Identifies rapid authentication attempts on sensitive ports (SSH, FTP, Telnet, SMB, RDP).
-* **C2 Beaconing (`T1071`)**: Flags outbound heartbeat traffic with low coefficient of variance ($CV \le 0.15$).
-* **DNS Tunneling (`T1071.004`)**: Shannon entropy analysis of high-length query labels to uncover C2 covert channels.
-* **Data Exfiltration (`T1041`)**: Detects baseline-exceeding outbound transfers ($z \ge 4.0$, $>10\text{ MB}$).
-* **Unknown Device Discovery (`T1200`)**: Detects rogue hardware joining local broadcast domains.
+SentinelShield v2.0 implements production-grade security across every layer:
 
-### 2. Probabilistic Risk Scoring & Policy Engine
-* Aggregates findings per source IP using a **noisy-OR** probability formulation:
-  $$\text{Risk Score} = 100 \times \left(1 - \prod_{f \in \text{findings}} \left(1 - w_f \cdot \text{severity}_f\right)\right)$$
-* Enforces tenant-scoped policy rules:
-  - **Autonomy levels**: `automatic`, `approval`, or `notify`.
-  - **Protected assets**: Never blocks gateway CIDRs or core infrastructure.
-  - **TTL clamping**: Prevents infinite lockouts by clamping action windows.
+### 1. Role-Based Access Control (RBAC) & Constant-Time Auth
+- **No Hardcoded Credentials**: Passwords and secrets have been removed from source code and client scripts.
+- **Constant-Time Verification**: API tokens are evaluated using `hmac.compare_digest` to prevent timing attacks.
+- **Defined RBAC Roles**:
+  - `admin`: Full administrative control (policy modification, action approvals/denials, trap deployment, simulation).
+  - `analyst`: Read access across all telemetry, ability to trigger honeypot interactions.
+  - `viewer`: Read-only dashboard access.
+  - `collector`: Telemetry ingestion only (`/api/telemetry/*`); denied access to administrative and query endpoints.
 
-### 3. Cryptographic Ed25519 Command Pipeline
-* Cloud orchestrator generates single-use signed commands containing payload digest, nonce, expiry, tenant ID, and collector ID.
-* Local agent cryptographically verifies signatures before applying rules.
-* Tampered commands, replay attempts, expired commands, and mismatched keys are rejected with full audit logging.
-* Agent executes local expiry independently of cloud link health.
+### 2. Persistent Cryptographic Command Pipeline
+- **Persistent Ed25519 Keypair**: Saved securely to `sentinel_signing_key.pem` or loaded from `SENTINEL_ED25519_PRIVATE_KEY_PEM`. Survives container and process restarts without invalidating previously verified agents.
+- **Durable Replay Protection**: Verifier checks both memory nonce cache and database audit history (`EnforcementAuditModel`) to prevent command replay attacks across reboots.
 
-### 4. Dynamic Honeypots & Deception Traps
-* Deploys fake services (Fake SSH, Fake FTP, Fake Telnet, Fake HTTP, Fake SMTP) in isolated sandbox environments.
-* Captures attacker probes, records payloads, and feeds interaction telemetry back into the risk scoring engine.
+### 3. Multi-Tenant Data Isolation
+- All database models (`DeviceModel`, `TrafficFlowModel`, `DnsRecordModel`, `ThreatFindingModel`, `AgentDecisionModel`, `EnforcementRuleModel`, `EnforcementAuditModel`, `HoneypotModel`, `SystemPolicyModel`) include indexed `tenant_id` fields.
+- Queries across the control plane and API are strictly scoped to the authenticated tenant.
+
+### 4. DOM XSS Remediation
+- Frontend client scripts (`dashboard.js`, `threats.js`, `honeypots.js`, `agent_logs.js`, `traffic.js`) sanitize all network IPs, hostnames, MITRE tags, and payload strings with `SentinelAPI.escapeHTML()`, while 100% preserving the existing design, styling, and animations.
+
+### 5. Strict CORS & Authenticated WebSockets
+- CORS is restricted to explicitly configured trusted origins (configurable via `CORS_ORIGINS`).
+- Real-time WebSockets (`/ws/dashboard`) require token authentication on connect and validate origins against allowed origins.
 
 ---
 
 ## 4. API Communication Contracts
 
-The frontend communicates with the backend through standardized JSON HTTP APIs and WebSocket streams:
-
-| Route | Method | Payload / Query | Response | Auth | Description |
-|---|---|---|---|---|---|
-| `/api/status` | `GET` | None | `{ devices_online, threats_detected, honeypots_active, network_status, pending_approvals }` | Optional | SOC overview card metrics |
-| `/api/traffic` | `GET` | `?limit=15` | `[ { time, source, destination, protocol, size } ]` | Optional | Live packet stream feed |
-| `/api/threats` | `GET` | `?status=active` | `[ { id, time, ip, type, target, severity, risk_score, mitre } ]` | Optional | Threat feed and distribution |
-| `/api/honeypots` | `GET` | None | `[ { id, service, port, status, attacker_ip, interactions, last_trigger } ]` | Optional | Active deception traps |
-| `/api/honeypots/interact` | `POST` | `{ honeypot_code, attacker_ip, payload }` | `{ status, trap }` | Admin | Simulates / captures decoy probe |
-| `/api/logs` | `GET` | `?limit=40` | `[ { id, timestamp, event_type, message, status, action, target, command_id } ]` | Optional | AI terminal activity log |
-| `/api/decisions` | `GET` | `?status=needs_approval` | `[ { id, time, action, target, risk_score, reason, status } ]` | Optional | Pending security decisions |
-| `/api/decisions/{id}/approve` | `POST` | None | `{ status: "approved", enforcement: { command_id, outcome } }` | Admin | Cryptographically signs & enforces action |
-| `/api/decisions/{id}/deny` | `POST` | `{ reason }` | `{ status: "denied" }` | Admin | Operator overrides & rejects action |
-| `/api/telemetry/flow` | `POST` | `{ ts, src_ip, dst_ip, dst_port, proto, bytes_out, packets }` | `{ status, result }` | Ingest | Collector network flow ingest |
-| `/api/telemetry/dns` | `POST` | `{ ts, src_ip, qname, qtype }` | `{ status, result }` | Ingest | Collector DNS query ingest |
-| `/api/telemetry/device` | `POST` | `{ ts, mac, ip, hostname }` | `{ status, result }` | Ingest | Collector device discovery ingest |
-| `/api/enforcement/rules` | `GET` | None | `[ { id, action, ip, created_at, expires_at, status } ]` | Optional | Active local firewall rules |
-| `/api/policy` | `GET` / `PUT` | Policy fields | Current policy config | Admin (PUT) | Get / update autonomy policies |
-| `/ws/dashboard` | `WebSocket` | None | Streaming `{ type: "status_update", data }` | None | Real-time live status push |
-
----
-
-## 5. Repository Structure
-
-```
-SentinelShield/
-├── app/                               # Core SentinelShield Backend & Security Engine
-│   ├── core/                          # Telemetry models & data structures
-│   │   ├── __init__.py
-│   │   └── telemetry.py               # FlowEvent, DnsEvent, DeviceEvent dataclasses
-│   ├── detection/                     # Pure detection algorithms
-│   │   ├── __init__.py
-│   │   └── detectors.py               # 6 algorithmic detectors & Shannon entropy
-│   ├── orchestration/                 # Risk scoring & policy decision engine
-│   │   ├── __init__.py
-│   │   └── decision.py                # Noisy-OR scoring, policy validation, proposal clamps
-│   ├── security/                      # Cryptographic signing & verification
-│   │   ├── __init__.py
-│   │   └── commands.py                # Ed25519 CommandSigner & CommandVerifier
-│   ├── enforcement/                   # Local enforcement agent
-│   │   ├── __init__.py
-│   │   └── agent.py                   # EnforcementAgent, DryRunBackend, NftBackend
-│   ├── services/                      # High-level backend platform services
-│   │   ├── security_engine.py         # Ingestion, pipeline orchestration & approvals
-│   │   ├── honeypot_service.py        # Deception traps and attacker simulation
-│   │   ├── telemetry_generator.py     # Background collector stream simulator
-│   │   └── auth.py                    # Role-based API key & token authorization
-│   ├── database.py                    # Unified SQLAlchemy persistence layer
-│   └── __init__.py
-│
-├── fastapi_backend/                   # FastAPI Cloud Control Plane
-│   ├── modules/                       # Service bridges (zero duplicate code)
-│   │   ├── ai_decision.py
-│   │   ├── honeypot_controller.py
-│   │   ├── packet_sniffer.py
-│   │   └── threat_detector.py
-│   ├── api.py                         # FastAPI REST & WebSocket endpoints
-│   └── __init__.py
-│
-├── flask_app/                         # Existing SOC Dashboard Frontend (Design Preserved)
-│   ├── backend/                       # Legacy compatibility models
-│   │   ├── database.py
-│   │   ├── init_db.py
-│   │   └── models.py                  # Bridges to app.database
-│   ├── static/                        # CSS, Fonts, Images & Client JavaScript
-│   │   ├── css/
-│   │   │   ├── home.css
-│   │   │   └── styles.css             # Established SOC design system
-│   │   ├── js/
-│   │   │   ├── api_client.js          # Centralized API client & WebSocket manager
-│   │   │   ├── dashboard.js           # Live status counters & volume charts
-│   │   │   ├── traffic.js             # Packet stream monitor
-│   │   │   ├── threats.js             # MITRE threat feed & distribution
-│   │   │   ├── honeypots.js           # Deception grid with interactive probe
-│   │   │   └── agent_logs.js          # Terminal log & 1-click human approval
-│   │   └── images/
-│   │       └── logo.png
-│   ├── templates/                     # Jinja2 HTML Templates
-│   │   ├── base.html                  # Sidebar, topbar, clock, theme layout
-│   │   ├── home.html                  # Particle shield landing page
-│   │   ├── dashboard.html             # Overview cards & charts
-│   │   ├── traffic.html               # Network packet stream
-│   │   ├── threats.html               # Threat intelligence
-│   │   ├── honeypots.html             # Honeypot deception manager
-│   │   ├── agent_logs.html            # Autonomous decision audit trail
-│   │   └── logo.html                  # Splash entry
-│   └── app.py                         # Flask application & reverse proxy
-│
-├── tests/                             # Comprehensive Automated Test Suites
-│   ├── test_core.py                   # 26 unit tests for core algorithms & crypto
-│   └── test_integration.py            # 7 E2E tests for API, DB, pipeline & UI
-│
-├── run.py                             # Parallel runner for FastAPI + Flask
-├── requirements.txt                   # Production dependencies
-├── Dockerfile                         # Container build definition
-└── README.md                          # Platform documentation
-```
+| Route | Method | Payload / Query | Auth Role | Description |
+|---|---|---|---|---|
+| `/api/status` | `GET` | None | Read (`viewer`+) | SOC overview card metrics |
+| `/api/traffic` | `GET` | `?limit=15` | Read (`viewer`+) | Live packet stream feed |
+| `/api/threats` | `GET` | `?status=active` | Read (`viewer`+) | Threat feed and distribution |
+| `/api/threats/summary` | `GET` | None | Read (`viewer`+) | Aggregated threat counts & types |
+| `/api/honeypots` | `GET` | None | Read (`viewer`+) | Active deception traps |
+| `/api/honeypots/interact` | `POST` | `{ honeypot_code, attacker_ip, payload }` | `analyst`, `admin` | Simulates / captures decoy probe |
+| `/api/honeypots/deploy` | `POST` | `{ service, port }` | `admin` | Deploys new deception trap |
+| `/api/logs` | `GET` | `?limit=40` | Read (`viewer`+) | AI terminal activity log |
+| `/api/decisions` | `GET` | `?status=needs_approval` | Read (`viewer`+) | Pending security decisions |
+| `/api/decisions/{id}/approve` | `POST` | None | `admin` | Cryptographically signs & enforces action |
+| `/api/decisions/{id}/deny` | `POST` | `{ reason }` | `admin` | Operator overrides & rejects action |
+| `/api/telemetry/flow` | `POST` | `{ ts, src_ip, dst_ip, dst_port, proto, ... }` | `collector`, `admin` | Collector network flow ingest |
+| `/api/telemetry/dns` | `POST` | `{ ts, src_ip, qname, qtype }` | `collector`, `admin` | Collector DNS query ingest |
+| `/api/telemetry/device` | `POST` | `{ ts, mac, ip, hostname }` | `collector`, `admin` | Collector device discovery ingest |
+| `/api/telemetry/simulate_attack` | `POST` | `{ attack_type }` | `admin` | Injects test attack trace |
+| `/api/enforcement/rules` | `GET` | None | Read (`viewer`+) | Active local firewall rules |
+| `/api/enforcement/audit` | `GET` | `?limit=30` | Read (`viewer`+) | Cryptographic command audit trail |
+| `/api/policy` | `GET` / `PUT` | Policy fields | `admin` (PUT) | Get / update autonomy policies |
+| `/ws/dashboard` | `WebSocket` | `?token=<key>` | Authenticated | Real-time live status push |
 
 ---
 
-## 6. Installation & Setup
+## 5. Configuration & Environment Variables
 
-### Prerequisites
-* Python 3.11, 3.12, or 3.13
-* Git
+| Variable | Default | Purpose |
+|---|---|---|
+| `DATABASE_URL` | `sqlite:///sentinelshield.db` | Persistence backend (SQLite or PostgreSQL) |
+| `FASTAPI_URL` | `http://127.0.0.1:8000` | FastAPI control plane location for Flask proxy |
+| `SENTINEL_ADMIN_KEY` | Auto-generated in `sentinel_keys.env` | Master administrative API key |
+| `SENTINEL_ANALYST_KEY` | Auto-generated in `sentinel_keys.env` | Security analyst API key |
+| `SENTINEL_VIEWER_KEY` | Auto-generated in `sentinel_keys.env` | Read-only viewer API key |
+| `SENTINEL_COLLECTOR_TOKEN` | Auto-generated in `sentinel_keys.env` | Collector telemetry ingestion token |
+| `SENTINEL_SIGNING_KEY_PATH` | `sentinel_signing_key.pem` | Path to persistent Ed25519 signing key |
+| `SENTINEL_SIMULATOR_ENABLED` | `false` | Enable background telemetry generator |
+| `CORS_ORIGINS` | `http://localhost:5000,http://localhost:8000` | Comma-separated list of allowed origins |
 
-### Step 1: Clone & Checkout Integration Branch
+---
+
+## 6. Installation & Quick Start
+
+### Option A: Local Development Run
+
 ```bash
-git clone https://github.com/Hemanth880225/sentinelshield.git
-cd sentinelshield
-git checkout feature/backend-frontend-integration
-```
-
-### Step 2: Install Dependencies
-```bash
+# 1. Install dependencies
 pip install -r requirements.txt
-```
 
-### Step 3: Configure Environment Variables (Optional)
-Defaults work out of the box using local SQLite. For production, set:
-```bash
-# Database URL (SQLite default: sqlite:///sentinelshield.db)
-export DATABASE_URL="postgresql://user:password@localhost:5432/sentinelshield"
-
-# FastAPI service URL for Flask reverse-proxy (default: http://127.0.0.1:8000)
-export FASTAPI_URL="http://127.0.0.1:8000"
-
-# Admin API Key for authorization
-export SENTINEL_ADMIN_KEY="sentinel-admin-sec-key-v2"
-```
-
----
-
-## 7. Running the Integrated Application
-
-To start both the FastAPI backend and Flask frontend in parallel:
-
-```bash
+# 2. Start both Flask SOC Dashboard and FastAPI Control Plane
 python run.py
 ```
 
-Console Output:
-```
-============================================================
-  SentinelShield — Agentic Deception Security Platform v2.0
-  'Don't Just Block Attackers — Deceive Them'
-============================================================
-[*] Initializing unified database and security policies...
-[*] Starting FastAPI Backend on http://0.0.0.0:8000 ...
-[*] Starting Flask SOC Dashboard on http://0.0.0.0:5000 ...
-[+] All SentinelShield services running:
-    - Web Dashboard:     http://localhost:5000
-    - FastAPI Swagger:   http://localhost:8000/docs
-    - Real-Time WS:      ws://localhost:8000/ws/dashboard
-============================================================
-```
-
-### Service Access Points
-* **SOC Web Dashboard**: Open [http://localhost:5000/dashboard](http://localhost:5000/dashboard) in your browser.
-* **Interactive Threat Intel**: [http://localhost:5000/threats](http://localhost:5000/threats)
-* **Live Traffic Monitor**: [http://localhost:5000/traffic](http://localhost:5000/traffic)
-* **Honeypot Deception Center**: [http://localhost:5000/honeypots](http://localhost:5000/honeypots)
-* **Agent Decision Logs & Approvals**: [http://localhost:5000/agent_logs](http://localhost:5000/agent_logs)
-* **FastAPI Swagger Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
-
----
-
-## 8. Verification & Automated Testing
-
-SentinelShield features a comprehensive test suite covering detection math, cryptographic guarantees, API contracts, and user experience routes:
-
-To run all 33 unit and integration tests:
+### Option B: Docker Compose
 
 ```bash
-python -m unittest discover -s tests -t .
+docker compose up --build
 ```
 
-Expected Output:
-```
-.................................
-----------------------------------------------------------------------
-Ran 33 tests in 4.806s
+Services will be available at:
+* **SOC Web Dashboard**: [http://localhost:5000/dashboard](http://localhost:5000/dashboard)
+* **Live Traffic Monitor**: [http://localhost:5000/traffic](http://localhost:5000/traffic)
+* **Threat Intelligence**: [http://localhost:5000/threats](http://localhost:5000/threats)
+* **Honeypot Deception Center**: [http://localhost:5000/honeypots](http://localhost:5000/honeypots)
+* **Agent Decision Logs & Approvals**: [http://localhost:5000/agent_logs](http://localhost:5000/agent_logs)
+* **FastAPI Swagger API Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
 
-OK
+---
+
+## 7. Verification & Automated Testing
+
+SentinelShield features 43 automated unit, integration, and security hardening tests with 100% pass rate:
+
+```bash
+python -m pytest tests/ -v
 ```
 
-### Test Coverage Highlights:
+Output:
+```
+============================= test session starts =============================
+tests/test_core.py ..........................                            [ 60%]
+tests/test_integration.py .......                                       [ 76%]
+tests/test_security_hardening.py ..........                             [100%]
+============================= 43 passed in 13.11s =============================
+```
+
+### Test Suite Structure:
 1. **`tests/test_core.py` (26 tests)**:
-   * Validation of `FlowEvent`, `DnsEvent`, and `DeviceEvent` dataclasses.
-   * Accuracy of port scan, brute force, beaconing, DNS tunneling, exfiltration, and unknown device detectors.
-   * Noisy-OR risk scoring calculation and policy threshold evaluation.
-   * LLM proposal validation and TTL clamping.
-   * Ed25519 cryptographic signature verification, replay protection, and expiration containment.
-   * Local enforcement agent rule application, fail-safe rule expiry without cloud connectivity, and injection-safe argv construction.
+   - Validates all 6 statistical detectors (port scan, brute force, C2 beaconing, DNS tunnel, exfiltration, unknown device).
+   - Verifies Noisy-OR probability math, proposal validation, and policy decision engine.
+   - Tests Ed25519 command signing, tampering rejection, and expiry without cloud connectivity.
 2. **`tests/test_integration.py` (7 tests)**:
-   * Telemetry-to-enforcement automated pipeline execution.
-   * Human-in-the-loop decision approval via `POST /api/decisions/{id}/approve`.
-   * Honeypot probe interaction and real-time deception reaction.
-   * FastAPI REST endpoints schema validation.
-   * Flask templates rendering with brand preservation.
-   * Flask-to-FastAPI reverse-proxy and fallback.
+   - Tests complete end-to-end telemetry ingestion to signed firewall rule execution.
+   - Validates human-in-the-loop authorization workflow (`approve_decision`).
+   - Verifies honeypot interaction, FastAPI REST endpoints, and Flask proxy.
+3. **`tests/test_security_hardening.py` (10 tests)**:
+   - Verifies unauthenticated API calls return HTTP 401.
+   - Validates RBAC permissions for `admin`, `analyst`, `viewer`, and `collector` roles.
+   - Tests persistent Ed25519 key loading across reloads.
+   - Confirms durable command replay protection and multi-tenant data isolation.
+   - Verifies strict honeypot validation and production simulator safety posture.
 
 ---
 
-## 9. Troubleshooting & FAQ
+## 8. License
 
-* **Port 5000 or 8000 Already in Use**:
-  If another process is bound to port 5000 or 8000, stop the competing service or customize the ports in `run.py`.
-* **CORS Errors When Calling FastAPI Directly**:
-  FastAPI has `CORSMiddleware` configured to allow `*`. Alternatively, access all APIs through the Flask origin (`http://localhost:5000/api/...`) which transparently proxies to FastAPI with zero CORS friction.
-* **Database Reset**:
-  To reset the database to a fresh state with default seed policies, devices, and honeypots, delete `sentinelshield.db`. A fresh database is created and seeded automatically on startup.
-* **Firewall Driver Configuration**:
-  By default, `DryRunBackend` is enabled so the platform runs smoothly on any OS (Windows, macOS, Linux) without requiring root/sudo privileges. In Linux production environments with nftables installed, instantiate `NftBackend` to directly apply kernel firewall sets.
-
----
-
-## 10. License
-
-SentinelShield Engineering Team — Proprietary Hackathon & Startup Security Platform.
-All rights reserved.
+SentinelShield Engineering Team — Proprietary Startup & Cloud Security Platform. All rights reserved.

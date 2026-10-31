@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  sentinelshield:
+    build: .
+    container_name: sentinelshield-soc
+    restart: unless-stopped
+    ports:
+      - "5000:5000"   # Flask SOC Dashboard
+      - "8000:8000"   # FastAPI Backend Control Plane
+    environment:
+      - FASTAPI_URL=http://localhost:8000
+      - DATABASE_URL=sqlite:///data/sentinelshield.db
+      - SENTINEL_KEYS_FILE=data/sentinel_keys.env
+      - SENTINEL_SIGNING_KEY_PATH=data/sentinel_signing_key.pem
+      - SENTINEL_SIMULATOR_ENABLED=false
+      - CORS_ORIGINS=http://localhost:5000,http://127.0.0.1:5000,http://localhost:8000,http://127.0.0.1:8000
+    volumes:
+      - sentinel-data:/app/data
+
+volumes:
+  sentinel-data:

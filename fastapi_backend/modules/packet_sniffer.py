@@ -1,14 +1,16 @@
 """
 SentinelShield — Packet Sniffer & Flow Bridge
-Fetches real telemetry packets from the database.
+Fetches real telemetry packets from the database with tenant scoping.
 """
 from app.database import SessionLocal, TrafficFlowModel
 
 
-def capture_packets():
+def capture_packets(tenant_id: str = "default"):
     db = SessionLocal()
     try:
-        flows = db.query(TrafficFlowModel).order_by(TrafficFlowModel.id.desc()).limit(10).all()
+        flows = db.query(TrafficFlowModel).filter_by(
+            tenant_id=tenant_id
+        ).order_by(TrafficFlowModel.id.desc()).limit(10).all()
         return [
             {
                 "time": f.time_str,

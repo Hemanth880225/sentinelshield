@@ -1,12 +1,15 @@
 """
 SentinelShield — Telemetry Generator & Collector Simulator
 Simulates a lightweight collector forwarding telemetry into the pipeline.
+Explicitly controlled and decoupled from real production telemetry ingestion.
 """
 from __future__ import annotations
+import os
 import time
 import random
 import threading
-import datetime
+from typing import Optional
+
 from app.core.telemetry import FlowEvent, DnsEvent, DeviceEvent
 from app.services.security_engine import engine_instance
 from app.database import SessionLocal, DeviceModel
@@ -27,10 +30,15 @@ ATTACKER_IPS = [
 
 
 class CollectorSimulator:
-    def __init__(self, interval_seconds: float = 3.0):
+    def __init__(self, interval_seconds: float = 3.0, tenant_id: str = "default"):
         self.interval = interval_seconds
+        self.tenant_id = tenant_id
         self._running = False
-        self._thread: threading.Thread | None = None
+        self._thread: Optional[threading.Thread] = None
+
+    @property
+    def is_running(self) -> bool:
+        return self._running
 
     def start(self):
         if self._running:
@@ -41,19 +49,20 @@ class CollectorSimulator:
 
     def stop(self):
         self._running = False
+        if self._thread:
+            self._thread = None
 
     def generate_single_sample(self):
         """Generates a small batch of traffic events and ingests them into the engine."""
         db = SessionLocal()
         try:
-            devices = db.query(DeviceModel).filter_by(status="online").all()
+            devices = db.query(DeviceModel).filter_by(tenant_id=self.tenant_id, status="online").all()
             device_ips = [d.ip for d in devices] if devices else ["192.168.1.10", "192.168.1.20"]
         finally:
             db.close()
 
         now_ts = time.time()
         flows = []
-        # 1. Generate 3-6 benign flows
         for _ in range(random.randint(3, 6)):
             src = random.choice(device_ips)
             dst = random.choice(EXTERNAL_BENIGN_IPS + device_ips)
@@ -70,17 +79,14 @@ class CollectorSimulator:
                 packets=random.randint(1, 10)
             ))
 
-        # 2. Ingest flows into engine
         for f in flows:
             engine_instance.ingest_flow(f)
 
-        # 3. Occasionally generate a benign DNS lookup
         if random.random() < 0.4:
             src = random.choice(device_ips)
             qname = random.choice(BENIGN_DOMAINS)
             engine_instance.ingest_dns(DnsEvent(ts=now_ts, src_ip=src, qname=qname))
 
-        # 4. Periodically tick rule expiry
         engine_instance.expire_rules()
 
     def trigger_test_attack(self, attack_type: str = "port_scan") -> dict:
@@ -89,7 +95,6 @@ class CollectorSimulator:
         attacker = random.choice(ATTACKER_IPS)
 
         if attack_type == "port_scan":
-            # 20 distinct ports from attacker to gateway in 10 seconds
             for p in range(1000, 1025):
                 flow = FlowEvent(
                     ts=now_ts + (p - 1000) * 0.1,
@@ -122,12 +127,12 @@ class CollectorSimulator:
         elif attack_type == "dns_tunnel":
             import secrets
             for _ in range(6):
-                sub = secrets.token_hex(20)  # 40 chars entropy
+                sub = secrets.token_hex(20)
                 dns = DnsEvent(ts=now_ts, src_ip="192.168.1.30", qname=f"{sub}.c2-exfil.xyz")
                 engine_instance.ingest_dns(dns)
             return {"type": "dns_tunnel", "src_ip": "192.168.1.30"}
 
-        return {"error": "unknown attack type"}
+        return {"error": f"unknown attack type: {attack_type}"}
 
     def _run_loop(self):
         while self._running:

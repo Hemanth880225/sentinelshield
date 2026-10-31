@@ -1,11 +1,22 @@
 /**
- * SentinelShield — Centralized Frontend API Client
+ * SentinelShield — Centralized Frontend API Client (Hardened)
  * Manages HTTP communication, authentication headers, error states,
- * loading states, and WebSocket real-time updates.
+ * loading states, DOM XSS prevention, and WebSocket real-time updates.
  */
 
 (function (window) {
     'use strict';
+
+    // Safe HTML Escaping utility to prevent DOM-based XSS
+    function escapeHTML(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
 
     // Configuration
     const metaApiUrl = document.querySelector('meta[name="api-base-url"]')?.getAttribute('content');
@@ -13,18 +24,22 @@
     const WS_BASE = window.SENTINEL_CONFIG?.WS_BASE_URL || 
         (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + (window.location.port === '5000' ? window.location.hostname + ':8000' : window.location.host) + '/ws';
 
-    let apiKey = localStorage.getItem('sentinel_api_key') || 'sentinel-admin-sec-key-v2';
+    // Never hardcode privileged admin keys in client source code
+    let apiKey = localStorage.getItem('sentinel_api_key') || '';
     let isBackendAvailable = true;
     let ws = null;
     let wsReconnectTimer = null;
 
     function getHeaders(customHeaders = {}) {
-        return {
+        const headers = {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
-            'X-API-Key': apiKey,
             ...customHeaders
         };
+        if (apiKey) {
+            headers['X-API-Key'] = apiKey;
+        }
+        return headers;
     }
 
     async function request(endpoint, options = {}) {
@@ -49,7 +64,6 @@
                 throw new Error(errorData.detail || errorData.error || `HTTP error ${response.status}`);
             }
 
-            // Connection healthy
             if (!isBackendAvailable) {
                 isBackendAvailable = true;
                 updateHealthIndicator(true);
@@ -92,7 +106,8 @@
             return;
         }
 
-        const wsUrl = `${WS_BASE}/${channel}`;
+        const wsTokenParam = apiKey ? `?token=${encodeURIComponent(apiKey)}` : '';
+        const wsUrl = `${WS_BASE}/${channel}${wsTokenParam}`;
         try {
             ws = new WebSocket(wsUrl);
 
@@ -112,21 +127,21 @@
             };
 
             ws.onerror = function (err) {
-                console.warn('[Sentinel WS] Error:', err);
+                console.warn('[Sentinel WS] Connection Notice:', err);
             };
 
             ws.onclose = function () {
-                console.log('[Sentinel WS] Disconnected. Reconnecting in 5s...');
                 ws = null;
-                wsReconnectTimer = setTimeout(() => initWebSocket(channel, onMessage), 5000);
+                wsReconnectTimer = setTimeout(() => initWebSocket(channel, onMessage), 6000);
             };
         } catch (e) {
-            console.warn('[Sentinel WS] WebSocket initialization failed, falling back to HTTP polling:', e);
+            console.warn('[Sentinel WS] WebSocket initialization fallback to HTTP polling:', e);
         }
     }
 
     // Public API
     window.SentinelAPI = {
+        escapeHTML,
         get: (endpoint) => request(endpoint, { method: 'GET' }),
         post: (endpoint, body) => request(endpoint, { method: 'POST', body: JSON.stringify(body) }),
         put: (endpoint, body) => request(endpoint, { method: 'PUT', body: JSON.stringify(body) }),
@@ -152,7 +167,11 @@
         // Utilities
         setApiKey: (key) => {
             apiKey = key;
-            localStorage.setItem('sentinel_api_key', key);
+            if (key) {
+                localStorage.setItem('sentinel_api_key', key);
+            } else {
+                localStorage.removeItem('sentinel_api_key');
+            }
         },
         initWebSocket,
         isAvailable: () => isBackendAvailable

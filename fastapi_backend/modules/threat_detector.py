@@ -1,14 +1,16 @@
 """
 SentinelShield — Threat Detector Bridge
-Uses real threat detection records from the unified database.
+Uses real threat detection records from the unified database with tenant scoping.
 """
 from app.database import SessionLocal, ThreatFindingModel
 
 
-def detect_threats():
+def detect_threats(tenant_id: str = "default"):
     db = SessionLocal()
     try:
-        threats = db.query(ThreatFindingModel).order_by(ThreatFindingModel.id.desc()).limit(20).all()
+        threats = db.query(ThreatFindingModel).filter_by(
+            tenant_id=tenant_id
+        ).order_by(ThreatFindingModel.id.desc()).limit(20).all()
         return [
             {
                 "time": t.time_str,

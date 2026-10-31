@@ -1,0 +1,16 @@
+.git
+.gitignore
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+.env
+.venv
+venv/
+.idea/
+.vscode/
+tests/
+.pytest_cache/
+sentinel_keys.env
+sentinel_signing_key.pem

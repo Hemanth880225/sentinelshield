@@ -1,6 +1,6 @@
 """
 SentinelShield — Flask Data Access Layer Bridge
-Queries the unified SentinelShield database (app.database).
+Queries the unified SentinelShield database (app.database) with tenant scoping.
 """
 from __future__ import annotations
 import datetime
@@ -10,14 +10,14 @@ from app.database import (
 )
 
 
-def get_dashboard_status():
+def get_dashboard_status(tenant_id: str = "default"):
     """Aggregate stats for the main dashboard cards."""
     db = SessionLocal()
     try:
-        devices_online = db.query(DeviceModel).filter_by(status="online").count()
-        threats_detected = db.query(ThreatFindingModel).filter_by(status="active").count()
-        honeypots_active = db.query(HoneypotModel).count()
-        high_threats = db.query(ThreatFindingModel).filter_by(status="active", severity="High").count()
+        devices_online = db.query(DeviceModel).filter_by(tenant_id=tenant_id, status="online").count()
+        threats_detected = db.query(ThreatFindingModel).filter_by(tenant_id=tenant_id, status="active").count()
+        honeypots_active = db.query(HoneypotModel).filter_by(tenant_id=tenant_id).count()
+        high_threats = db.query(ThreatFindingModel).filter_by(tenant_id=tenant_id, status="active", severity="High").count()
 
         if high_threats > 0:
             net_status = "Threat Detected"
@@ -40,11 +40,13 @@ def devices_count(count: int) -> int:
     return count if count > 0 else 10
 
 
-def get_traffic():
+def get_traffic(limit: int = 10, tenant_id: str = "default"):
     """Return recent packet flows from the unified telemetry stream."""
     db = SessionLocal()
     try:
-        flows = db.query(TrafficFlowModel).order_by(TrafficFlowModel.id.desc()).limit(10).all()
+        flows = db.query(TrafficFlowModel).filter_by(
+            tenant_id=tenant_id
+        ).order_by(TrafficFlowModel.id.desc()).limit(limit).all()
         return [
             {
                 "time": f.time_str,
@@ -59,11 +61,13 @@ def get_traffic():
         db.close()
 
 
-def get_threats():
+def get_threats(tenant_id: str = "default"):
     """Return all active threat records."""
     db = SessionLocal()
     try:
-        rows = db.query(ThreatFindingModel).order_by(ThreatFindingModel.id.desc()).limit(50).all()
+        rows = db.query(ThreatFindingModel).filter_by(
+            tenant_id=tenant_id
+        ).order_by(ThreatFindingModel.id.desc()).limit(50).all()
         return [
             {
                 "id": r.id,
@@ -81,11 +85,11 @@ def get_threats():
         db.close()
 
 
-def get_honeypots():
+def get_honeypots(tenant_id: str = "default"):
     """Return all honeypot deception records."""
     db = SessionLocal()
     try:
-        rows = db.query(HoneypotModel).all()
+        rows = db.query(HoneypotModel).filter_by(tenant_id=tenant_id).all()
         return [
             {
                 "id": r.honeypot_code,
@@ -100,11 +104,13 @@ def get_honeypots():
         db.close()
 
 
-def get_agent_logs():
+def get_agent_logs(tenant_id: str = "default"):
     """Return all AI agent decision and enforcement log entries."""
     db = SessionLocal()
     try:
-        rows = db.query(AgentDecisionModel).order_by(AgentDecisionModel.id.asc()).limit(40).all()
+        rows = db.query(AgentDecisionModel).filter_by(
+            tenant_id=tenant_id
+        ).order_by(AgentDecisionModel.id.asc()).limit(40).all()
         return [
             {
                 "id": r.id,

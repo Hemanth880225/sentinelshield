@@ -1,7 +1,7 @@
 /* ============================================
-   SENTINELSHIELD — AGENT LOGS JS
+   SENTINELSHIELD — AGENT LOGS JS (Secured & Hardened)
    Terminal-Style AI Decision Log Viewer &
-   Human-in-the-Loop Authorization
+   Human-in-the-Loop Authorization with XSS Sanitization
    ============================================ */
 
 function classifyLog(text) {
@@ -70,20 +70,35 @@ async function loadPendingDecisions() {
             item.className = "pending-decision-row";
             item.style.cssText = "display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:rgba(2,6,23,0.6);border:1px solid rgba(245,158,11,0.3);border-radius:8px;gap:16px;flex-wrap:wrap";
 
+            const actSafe = SentinelAPI.escapeHTML(d.action.toUpperCase());
+            const tgtSafe = SentinelAPI.escapeHTML(d.target);
+            const rskVal = parseInt(d.risk_score, 10) || 0;
+            const rsnSafe = SentinelAPI.escapeHTML(d.reason || '');
+
             item.innerHTML = `
                 <div style="display:flex;flex-direction:column;gap:4px">
                     <div style="display:flex;align-items:center;gap:10px">
-                        <span class="badge badge-tcp" style="background:rgba(245,158,11,0.15);color:#f59e0b;font-weight:700">${d.action.toUpperCase()}</span>
-                        <code style="color:#e2e8f0;font-size:14px;font-weight:600">${d.target}</code>
-                        <span style="font-size:12px;color:#ef4444;font-weight:600">Risk: ${d.risk_score}%</span>
+                        <span class="badge badge-tcp" style="background:rgba(245,158,11,0.15);color:#f59e0b;font-weight:700">${actSafe}</span>
+                        <code style="color:#e2e8f0;font-size:14px;font-weight:600">${tgtSafe}</code>
+                        <span style="font-size:12px;color:#ef4444;font-weight:600">Risk: ${rskVal}%</span>
                     </div>
-                    <span style="font-size:12px;color:#94a3b8">${d.reason}</span>
+                    <span style="font-size:12px;color:#94a3b8">${rsnSafe}</span>
                 </div>
                 <div style="display:flex;align-items:center;gap:10px">
-                    <button id="approve-btn-${d.id}" onclick="approveAction(${d.id})" style="background:#22c55e;color:#020617;font-weight:700;font-size:12px;padding:6px 14px;border:none;border-radius:6px;cursor:pointer;transition:0.2s">✓ Approve & Enforce (Ed25519)</button>
-                    <button onclick="denyAction(${d.id})" style="background:rgba(239,68,68,0.2);color:#ef4444;border:1px solid rgba(239,68,68,0.4);font-weight:600;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;transition:0.2s">✗ Deny</button>
+                    <button id="approve-btn-${d.id}" class="btn-approve-action" style="background:#22c55e;color:#020617;font-weight:700;font-size:12px;padding:6px 14px;border:none;border-radius:6px;cursor:pointer;transition:0.2s">✓ Approve & Enforce (Ed25519)</button>
+                    <button class="btn-deny-action" style="background:rgba(239,68,68,0.2);color:#ef4444;border:1px solid rgba(239,68,68,0.4);font-weight:600;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;transition:0.2s">✗ Deny</button>
                 </div>
             `;
+
+            const approveBtn = item.querySelector('.btn-approve-action');
+            if (approveBtn) {
+                approveBtn.addEventListener('click', () => approveAction(d.id));
+            }
+            const denyBtn = item.querySelector('.btn-deny-action');
+            if (denyBtn) {
+                denyBtn.addEventListener('click', () => denyAction(d.id));
+            }
+
             container.appendChild(item);
         });
     } catch (e) {
@@ -101,26 +116,31 @@ async function loadLogs() {
 
         list.innerHTML = "";
 
-        /* Log count */
         const countEl = document.getElementById("log-count");
         if (countEl) countEl.textContent = data.length;
 
         data.forEach((log, i) => {
             const item = document.createElement("li");
-            const message = typeof log === 'string' ? log : log.message || log.decision || '';
-            const ts = typeof log === 'string' ? formatTimestamp(null) : formatTimestamp(log.timestamp);
-            const cls = classifyLog(message);
+            const rawMsg = typeof log === 'string' ? log : (log.message || log.decision || '');
+            const rawTs = typeof log === 'string' ? null : log.timestamp;
+            const ts = formatTimestamp(rawTs);
+            const cls = classifyLog(rawMsg);
 
-            const cmdBadge = (log.command_id && typeof log === 'object') ? 
-                `<span style="color:#64748b;font-size:10px;margin-left:6px">[cmd:${log.command_id.substring(0,8)}]</span>` : '';
+            const tsSafe = SentinelAPI.escapeHTML(ts);
+            const msgSafe = SentinelAPI.escapeHTML(rawMsg);
 
-            item.innerHTML = `<span class="log-timestamp">[${ts}]</span><span class="${cls}">[Agent] ${message}</span>${cmdBadge}`;
+            let cmdBadge = '';
+            if (log.command_id && typeof log === 'object') {
+                const cmdSafe = SentinelAPI.escapeHTML(log.command_id.substring(0, 8));
+                cmdBadge = `<span style="color:#64748b;font-size:10px;margin-left:6px">[cmd:${cmdSafe}]</span>`;
+            }
+
+            item.innerHTML = `<span class="log-timestamp">[${tsSafe}]</span><span class="${cls}">[Agent] ${msgSafe}</span>${cmdBadge}`;
 
             item.style.animationDelay = (i * 0.04) + 's';
             list.appendChild(item);
         });
 
-        /* Auto-scroll to bottom */
         list.scrollTop = list.scrollHeight;
 
     } catch (error) {

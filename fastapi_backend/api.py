@@ -1,10 +1,11 @@
 """
-SentinelShield — FastAPI Core Backend
+SentinelShield — FastAPI Core Backend (Hardened & Production-Ready)
 Integrates Telemetry Ingestion, Threat Detectors, Risk Scoring,
 Agentic Policy Decisions, Cryptographic Ed25519 Command Signing,
-Local Enforcement Agent, and Deception Honeypots.
+Local Enforcement Agent, and Deception Honeypots with RBAC and Tenant Isolation.
 """
 from __future__ import annotations
+import os
 import asyncio
 import datetime
 import json
@@ -28,13 +29,18 @@ from app.core.telemetry import FlowEvent, DnsEvent, DeviceEvent
 from app.services.security_engine import engine_instance
 from app.services.honeypot_service import honeypot_service
 from app.services.telemetry_generator import simulator
-from app.services.auth import get_current_user, require_admin, UserProfile
+from app.services.auth import (
+    get_current_user, require_admin, require_analyst_or_admin,
+    require_read_access, require_collector_or_admin, authenticate_token,
+    UserProfile
+)
 
 # Initialize database schema and seeds
 init_database()
 
-# Start background telemetry generator for continuous live monitoring
-simulator.start()
+# Start background telemetry generator only if explicitly enabled
+if os.environ.get("SENTINEL_SIMULATOR_ENABLED", "false").lower() == "true":
+    simulator.start()
 
 app = FastAPI(
     title="SentinelShield Agentic Security Platform",
@@ -43,13 +49,24 @@ app = FastAPI(
 )
 
 # --------------------------------------------------
-# CORS Configuration
+# CORS Configuration (Strict & Configurable)
 # --------------------------------------------------
+cors_env = os.environ.get("CORS_ORIGINS", "")
+if cors_env:
+    allowed_origins = [orig.strip() for orig in cors_env.split(",") if orig.strip()]
+else:
+    allowed_origins = [
+        "http://localhost:5000",
+        "http://127.0.0.1:5000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000"
+    ]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -98,14 +115,14 @@ class HoneypotInteractionSchema(BaseModel):
 
 class HoneypotDeploySchema(BaseModel):
     service: str
-    port: int
+    port: int = Field(ge=1, le=65535)
 
 
 class PolicyUpdateSchema(BaseModel):
     autonomy: Optional[str] = None  # automatic, approval, notify
-    auto_threshold: Optional[int] = None
-    approve_threshold: Optional[int] = None
-    max_ttl: Optional[int] = None
+    auto_threshold: Optional[int] = Field(default=None, ge=0, le=100)
+    approve_threshold: Optional[int] = Field(default=None, ge=0, le=100)
+    max_ttl: Optional[int] = Field(default=None, ge=30, le=86400)
     auto_isolate: Optional[bool] = None
     protected_cidrs: Optional[str] = None
 
@@ -115,7 +132,7 @@ class DecisionReviewSchema(BaseModel):
 
 
 # --------------------------------------------------
-# WebSocket Connection Manager
+# WebSocket Connection Manager with Auth & Origin Checks
 # --------------------------------------------------
 class ConnectionManager:
     def __init__(self):
@@ -146,15 +163,16 @@ ws_manager = ConnectionManager()
 
 @app.get("/api/status")
 @app.get("/status")
-def get_system_status():
+def get_system_status(user: UserProfile = Depends(require_read_access)):
     """Returns overall SOC health, active threats, honeypot traps, and collector connectivity."""
     db = SessionLocal()
     try:
-        devices_count = db.query(DeviceModel).filter_by(status="online").count()
-        threats_active = db.query(ThreatFindingModel).filter_by(status="active").count()
-        honeypots_count = db.query(HoneypotModel).count()
-        high_threats = db.query(ThreatFindingModel).filter_by(status="active", severity="High").count()
-        pending_decisions = db.query(AgentDecisionModel).filter_by(status="needs_approval").count()
+        tenant = user.tenant_id
+        devices_count = db.query(DeviceModel).filter_by(tenant_id=tenant, status="online").count()
+        threats_active = db.query(ThreatFindingModel).filter_by(tenant_id=tenant, status="active").count()
+        honeypots_count = db.query(HoneypotModel).filter_by(tenant_id=tenant).count()
+        high_threats = db.query(ThreatFindingModel).filter_by(tenant_id=tenant, status="active", severity="High").count()
+        pending_decisions = db.query(AgentDecisionModel).filter_by(tenant_id=tenant, status="needs_approval").count()
 
         if high_threats > 0:
             net_status = "Threat Detected"
@@ -164,6 +182,7 @@ def get_system_status():
             net_status = "Secure"
 
         return {
+            "tenant_id": tenant,
             "devices_online": devices_count,
             "threats_detected": threats_active,
             "honeypots_active": honeypots_count,
@@ -184,15 +203,19 @@ def get_system_status():
 
 @app.get("/api/traffic")
 @app.get("/traffic")
-def get_recent_traffic(limit: int = 15):
+def get_recent_traffic(limit: int = 15, user: UserProfile = Depends(require_read_access)):
     """Returns real captured packet flows formatted for the frontend data table."""
     db = SessionLocal()
     try:
-        flows = db.query(TrafficFlowModel).order_by(TrafficFlowModel.id.desc()).limit(limit).all()
-        if not flows:
-            # If fresh DB, generate initial batch
+        flows = db.query(TrafficFlowModel).filter_by(
+            tenant_id=user.tenant_id
+        ).order_by(TrafficFlowModel.id.desc()).limit(limit).all()
+
+        if not flows and os.environ.get("SENTINEL_SIMULATOR_ENABLED", "false").lower() == "true":
             simulator.generate_single_sample()
-            flows = db.query(TrafficFlowModel).order_by(TrafficFlowModel.id.desc()).limit(limit).all()
+            flows = db.query(TrafficFlowModel).filter_by(
+                tenant_id=user.tenant_id
+            ).order_by(TrafficFlowModel.id.desc()).limit(limit).all()
 
         return [
             {
@@ -209,7 +232,7 @@ def get_recent_traffic(limit: int = 15):
 
 
 @app.post("/api/telemetry/flow")
-def ingest_flow(payload: FlowEventSchema):
+def ingest_flow(payload: FlowEventSchema, user: UserProfile = Depends(require_collector_or_admin)):
     """Collector endpoint: streams network flow metadata to cloud engine."""
     try:
         flow = FlowEvent(
@@ -230,7 +253,7 @@ def ingest_flow(payload: FlowEventSchema):
 
 
 @app.post("/api/telemetry/dns")
-def ingest_dns(payload: DnsEventSchema):
+def ingest_dns(payload: DnsEventSchema, user: UserProfile = Depends(require_collector_or_admin)):
     """Collector endpoint: streams DNS query events to cloud engine."""
     try:
         dns = DnsEvent(
@@ -246,7 +269,7 @@ def ingest_dns(payload: DnsEventSchema):
 
 
 @app.post("/api/telemetry/device")
-def ingest_device(payload: DeviceEventSchema):
+def ingest_device(payload: DeviceEventSchema, user: UserProfile = Depends(require_collector_or_admin)):
     """Collector endpoint: streams device discovery events (ARP/DHCP/mDNS)."""
     try:
         dev = DeviceEvent(
@@ -262,7 +285,7 @@ def ingest_device(payload: DeviceEventSchema):
 
 
 @app.post("/api/telemetry/batch")
-def ingest_telemetry_batch(batch: TelemetryBatchSchema):
+def ingest_telemetry_batch(batch: TelemetryBatchSchema, user: UserProfile = Depends(require_collector_or_admin)):
     """Ingest a mixed batch of telemetry events in one payload."""
     results = {"flows": 0, "dns": 0, "devices": 0}
     for f in batch.flows:
@@ -297,8 +320,8 @@ def ingest_telemetry_batch(batch: TelemetryBatchSchema):
 
 
 @app.post("/api/telemetry/simulate_attack")
-def simulate_attack(attack_type: str = Body(default="port_scan", embed=True)):
-    """Triggers verifiable test attack telemetry (port_scan, brute_force, dns_tunnel)."""
+def simulate_attack(attack_type: str = Body(default="port_scan", embed=True), user: UserProfile = Depends(require_admin)):
+    """Admin-only: triggers verifiable test attack telemetry (port_scan, brute_force, dns_tunnel)."""
     res = simulator.trigger_test_attack(attack_type)
     return {"status": "attack_injected", "details": res}
 
@@ -309,11 +332,11 @@ def simulate_attack(attack_type: str = Body(default="port_scan", embed=True)):
 
 @app.get("/api/threats")
 @app.get("/threats")
-def get_threats(status: Optional[str] = None):
+def get_threats(status: Optional[str] = None, user: UserProfile = Depends(require_read_access)):
     """Returns real detected threats with severity, risk score, and MITRE classification."""
     db = SessionLocal()
     try:
-        q = db.query(ThreatFindingModel)
+        q = db.query(ThreatFindingModel).filter_by(tenant_id=user.tenant_id)
         if status:
             q = q.filter_by(status=status)
         threats = q.order_by(ThreatFindingModel.id.desc()).limit(50).all()
@@ -337,11 +360,13 @@ def get_threats(status: Optional[str] = None):
 
 
 @app.get("/api/threats/summary")
-def get_threats_summary():
+def get_threats_summary(user: UserProfile = Depends(require_read_access)):
     """Aggregated threat intelligence statistics for charts and cards."""
     db = SessionLocal()
     try:
-        threats = db.query(ThreatFindingModel).filter_by(status="active").all()
+        threats = db.query(ThreatFindingModel).filter_by(
+            tenant_id=user.tenant_id, status="active"
+        ).all()
         high = sum(1 for t in threats if t.severity == "High")
         medium = sum(1 for t in threats if t.severity == "Medium")
         low = sum(1 for t in threats if t.severity == "Low")
@@ -367,19 +392,20 @@ def get_threats_summary():
 
 @app.get("/api/honeypots")
 @app.get("/honeypots")
-def get_honeypots():
+def get_honeypots(user: UserProfile = Depends(require_read_access)):
     """Returns active honeypot deception traps and attacker captures."""
-    return honeypot_service.list_honeypots()
+    return honeypot_service.list_honeypots(tenant_id=user.tenant_id)
 
 
 @app.post("/api/honeypots/interact")
-def record_honeypot_interaction(payload: HoneypotInteractionSchema):
+def record_honeypot_interaction(payload: HoneypotInteractionSchema, user: UserProfile = Depends(require_analyst_or_admin)):
     """Records an attacker probing a decoy service and initiates deception defense."""
     try:
         res = honeypot_service.record_interaction(
             honeypot_code=payload.honeypot_code,
             attacker_ip=payload.attacker_ip,
-            payload=payload.payload
+            payload=payload.payload,
+            tenant_id=user.tenant_id
         )
         return {"status": "interaction_captured", "trap": res}
     except ValueError as e:
@@ -389,8 +415,11 @@ def record_honeypot_interaction(payload: HoneypotInteractionSchema):
 @app.post("/api/honeypots/deploy")
 def deploy_dynamic_honeypot(payload: HoneypotDeploySchema, user: UserProfile = Depends(require_admin)):
     """Deploys a new deception trap in the network sandbox."""
-    res = honeypot_service.deploy_honeypot(payload.service, payload.port)
-    return {"status": "deployed", "honeypot": res}
+    try:
+        res = honeypot_service.deploy_honeypot(payload.service, payload.port, tenant_id=user.tenant_id)
+        return {"status": "deployed", "honeypot": res}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # --------------------------------------------------
@@ -399,12 +428,13 @@ def deploy_dynamic_honeypot(payload: HoneypotDeploySchema, user: UserProfile = D
 
 @app.get("/api/logs")
 @app.get("/logs")
-def get_agent_logs(limit: int = 40):
+def get_agent_logs(limit: int = 40, user: UserProfile = Depends(require_read_access)):
     """Returns autonomous decision history and audit trail for terminal view."""
     db = SessionLocal()
     try:
-        logs = db.query(AgentDecisionModel).order_by(AgentDecisionModel.id.asc()).all()
-        # Return last `limit` logs
+        logs = db.query(AgentDecisionModel).filter_by(
+            tenant_id=user.tenant_id
+        ).order_by(AgentDecisionModel.id.asc()).all()
         sliced = logs[-limit:] if len(logs) > limit else logs
         return [
             {
@@ -426,11 +456,11 @@ def get_agent_logs(limit: int = 40):
 
 
 @app.get("/api/decisions")
-def list_decisions(status: Optional[str] = None):
+def list_decisions(status: Optional[str] = None, user: UserProfile = Depends(require_read_access)):
     """Lists agent security decisions with filter for approval-required actions."""
     db = SessionLocal()
     try:
-        q = db.query(AgentDecisionModel)
+        q = db.query(AgentDecisionModel).filter_by(tenant_id=user.tenant_id)
         if status:
             q = q.filter_by(status=status)
         decisions = q.order_by(AgentDecisionModel.id.desc()).all()
@@ -490,11 +520,13 @@ def deny_decision(
 # --------------------------------------------------
 
 @app.get("/api/enforcement/rules")
-def get_enforcement_rules():
+def get_enforcement_rules(user: UserProfile = Depends(require_read_access)):
     """Lists active firewall rules verified and applied by the local agent."""
     db = SessionLocal()
     try:
-        rules = db.query(EnforcementRuleModel).filter_by(status="active").all()
+        rules = db.query(EnforcementRuleModel).filter_by(
+            tenant_id=user.tenant_id, status="active"
+        ).all()
         return [
             {
                 "id": r.id,
@@ -512,11 +544,13 @@ def get_enforcement_rules():
 
 
 @app.get("/api/enforcement/audit")
-def get_enforcement_audit(limit: int = 30):
+def get_enforcement_audit(limit: int = 30, user: UserProfile = Depends(require_read_access)):
     """Returns cryptographic command execution audit trail."""
     db = SessionLocal()
     try:
-        audits = db.query(EnforcementAuditModel).order_by(EnforcementAuditModel.id.desc()).limit(limit).all()
+        audits = db.query(EnforcementAuditModel).filter_by(
+            tenant_id=user.tenant_id
+        ).order_by(EnforcementAuditModel.id.desc()).limit(limit).all()
         return [
             {
                 "id": a.id,
@@ -538,13 +572,13 @@ def get_enforcement_audit(limit: int = 30):
 # --------------------------------------------------
 
 @app.get("/api/policy")
-def get_security_policy():
+def get_security_policy(user: UserProfile = Depends(require_read_access)):
     """Retrieves current security policy and autonomy thresholds."""
     db = SessionLocal()
     try:
-        pol = db.query(SystemPolicyModel).first()
+        pol = db.query(SystemPolicyModel).filter_by(tenant_id=user.tenant_id).first()
         if not pol:
-            return {"autonomy": "automatic", "auto_threshold": 70, "approve_threshold": 40}
+            return {"autonomy": "approval", "auto_threshold": 70, "approve_threshold": 40}
         return {
             "tenant_id": pol.tenant_id,
             "autonomy": pol.autonomy,
@@ -563,9 +597,9 @@ def update_security_policy(update: PolicyUpdateSchema, user: UserProfile = Depen
     """Updates security autonomy level and thresholds."""
     db = SessionLocal()
     try:
-        pol = db.query(SystemPolicyModel).first()
+        pol = db.query(SystemPolicyModel).filter_by(tenant_id=user.tenant_id).first()
         if not pol:
-            pol = SystemPolicyModel()
+            pol = SystemPolicyModel(tenant_id=user.tenant_id)
             db.add(pol)
 
         if update.autonomy is not None:
@@ -600,16 +634,41 @@ def check_auth(user: UserProfile = Depends(get_current_user)):
 
 
 # --------------------------------------------------
-# 9. REAL-TIME WEBSOCKET STREAMING
+# 9. REAL-TIME WEBSOCKET STREAMING WITH AUTH
 # --------------------------------------------------
 
 @app.websocket("/ws/dashboard")
-async def websocket_dashboard(websocket: WebSocket):
+async def websocket_dashboard(websocket: WebSocket, token: Optional[str] = Query(None)):
+    """
+    Authenticated WebSocket endpoint for real-time status streaming.
+    Requires token query parameter or authorization header.
+    """
+    # Origin verification
+    origin = websocket.headers.get("origin")
+    if origin and allowed_origins and origin not in allowed_origins:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    # Check authentication
+    auth_token = token
+    if not auth_token:
+        # Check subprotocol or query
+        auth_header = websocket.headers.get("authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            auth_token = auth_header[7:].strip()
+        else:
+            auth_token = websocket.headers.get("x-api-key")
+
+    user = authenticate_token(auth_token)
+    if not user:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
     await ws_manager.connect(websocket)
     try:
         while True:
-            # Poll status and stream to connected browser every 2 seconds
-            status_data = get_system_status()
+            # Gather status data scoped to the authenticated tenant
+            status_data = get_system_status(user)
             await websocket.send_json({"type": "status_update", "data": status_data})
             await asyncio.sleep(2)
     except WebSocketDisconnect:

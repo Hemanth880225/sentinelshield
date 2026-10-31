@@ -1,11 +1,12 @@
 /* ============================================
-   SENTINELSHIELD — TRAFFIC MONITOR JS
-   Real-Time Traffic Packet Stream
+   SENTINELSHIELD — TRAFFIC MONITOR JS (Secured & Hardened)
+   Real-Time Traffic Packet Stream with XSS Sanitization
    ============================================ */
 
 function protocolBadge(proto) {
-    const p = (proto || 'TCP').toUpperCase();
-    return `<span class="badge badge-${p.toLowerCase()}">${p}</span>`;
+    const raw = (proto || 'TCP').toUpperCase();
+    const clean = SentinelAPI.escapeHTML(raw);
+    return `<span class="badge badge-${clean.toLowerCase()}">${clean}</span>`;
 }
 
 async function updateTraffic() {
@@ -36,11 +37,15 @@ async function updateTraffic() {
         table.innerHTML = "";
         data.forEach(item => {
             const row = document.createElement('tr');
-            const size = item.size || 64;
+            const size = parseInt(item.size, 10) || 64;
+            const timeSafe = SentinelAPI.escapeHTML(item.time);
+            const srcSafe = SentinelAPI.escapeHTML(item.source);
+            const dstSafe = SentinelAPI.escapeHTML(item.destination);
+
             row.innerHTML = `
-                <td style="font-family:var(--font-mono);font-size:12px;color:#64748b">${item.time}</td>
-                <td><code style="color:#e2e8f0">${item.source}</code></td>
-                <td><code style="color:#e2e8f0">${item.destination}</code></td>
+                <td style="font-family:var(--font-mono);font-size:12px;color:#64748b">${timeSafe}</td>
+                <td><code style="color:#e2e8f0">${srcSafe}</code></td>
+                <td><code style="color:#e2e8f0">${dstSafe}</code></td>
                 <td>${protocolBadge(item.protocol)}</td>
                 <td>
                     <span style="font-variant-numeric:tabular-nums">${size} B</span>

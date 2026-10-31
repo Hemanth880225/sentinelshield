@@ -1,12 +1,11 @@
 """
 SentinelShield — Honeypot & Deception Service
 Manages dynamic deception traps, simulates/records attacker interactions,
-and feeds deception telemetry into the core security engine.
+and feeds deception telemetry into the core security engine with strict validation.
 """
 from __future__ import annotations
 import time
 import datetime
-import random
 from typing import Optional, List, Dict
 
 from app.database import SessionLocal, HoneypotModel, AgentDecisionModel
@@ -15,10 +14,10 @@ from app.services.security_engine import engine_instance
 
 
 class HoneypotService:
-    def list_honeypots(self) -> List[Dict]:
+    def list_honeypots(self, tenant_id: str = "default") -> List[Dict]:
         db = SessionLocal()
         try:
-            traps = db.query(HoneypotModel).all()
+            traps = db.query(HoneypotModel).filter_by(tenant_id=tenant_id).all()
             return [
                 {
                     "id": h.honeypot_code,
@@ -34,23 +33,33 @@ class HoneypotService:
         finally:
             db.close()
 
-    def deploy_honeypot(self, service: str, port: int) -> Dict:
+    def deploy_honeypot(self, service: str, port: int, tenant_id: str = "default") -> Dict:
+        if not (1 <= port <= 65535):
+            raise ValueError(f"Invalid port: {port}. Port must be between 1 and 65535.")
+        if not service or not service.strip():
+            raise ValueError("Service name cannot be empty.")
+
         db = SessionLocal()
         try:
-            count = db.query(HoneypotModel).count()
+            existing_port = db.query(HoneypotModel).filter_by(tenant_id=tenant_id, port=port).first()
+            if existing_port:
+                raise ValueError(f"Port {port} is already assigned to {existing_port.service} ({existing_port.honeypot_code})")
+
+            count = db.query(HoneypotModel).filter_by(tenant_id=tenant_id).count()
             code = f"HP-{count + 1}"
             new_trap = HoneypotModel(
+                tenant_id=tenant_id,
                 honeypot_code=code,
-                service=service,
+                service=service.strip(),
                 port=port,
                 status="Active",
                 interactions=0
             )
             db.add(new_trap)
 
-            # Log deployment in agent logs
             now_str = datetime.datetime.now().strftime("%H:%M:%S")
             log = AgentDecisionModel(
+                tenant_id=tenant_id,
                 time_str=now_str,
                 event_type="deployment",
                 status="auto_approved",
@@ -58,24 +67,34 @@ class HoneypotService:
                 target=f"0.0.0.0:{port}",
                 risk_score=0,
                 reason="Dynamic deception trap provisioned",
-                message=f"Deploying {service} deception trap on port {port} ({code})"
+                message=f"Deploying {service.strip()} deception trap on port {port} ({code})"
             )
             db.add(log)
             db.commit()
-            return {"id": code, "service": service, "port": port, "status": "Active"}
+            return {"id": code, "service": service.strip(), "port": port, "status": "Active"}
         finally:
             db.close()
 
-    def record_interaction(self, honeypot_code: str, attacker_ip: str, payload: str = "") -> Dict:
+    def record_interaction(self, honeypot_code: str, attacker_ip: str, payload: str = "", tenant_id: str = "default") -> Dict:
         """Attacker interacts with honeypot trap -> triggers deception telemetry."""
+        if not honeypot_code or not honeypot_code.strip():
+            raise ValueError("Honeypot code must be provided.")
+
         db = SessionLocal()
         try:
-            trap = db.query(HoneypotModel).filter_by(honeypot_code=honeypot_code).first()
+            trap = db.query(HoneypotModel).filter_by(
+                tenant_id=tenant_id, honeypot_code=honeypot_code.strip()
+            ).first()
+
             if not trap:
-                # Try finding by ID if passed as numeric
-                trap = db.query(HoneypotModel).first()
-                if not trap:
-                    raise ValueError(f"Honeypot trap {honeypot_code} not found")
+                # If passed numeric ID as string, try looking up by integer ID
+                if honeypot_code.isdigit():
+                    trap = db.query(HoneypotModel).filter_by(
+                        tenant_id=tenant_id, id=int(honeypot_code)
+                    ).first()
+
+            if not trap:
+                raise ValueError(f"Honeypot trap '{honeypot_code}' not found")
 
             now_ts = time.time()
             now_str = datetime.datetime.now().strftime("%H:%M:%S")
@@ -86,8 +105,8 @@ class HoneypotService:
             trap.interaction_time = now_str
             trap.last_payload = payload or f"PROBE /auth/{trap.service.lower()}"
 
-            # Log agent terminal activity
             log = AgentDecisionModel(
+                tenant_id=tenant_id,
                 time_str=now_str,
                 event_type="interaction",
                 status="auto_approved",
@@ -100,8 +119,7 @@ class HoneypotService:
             db.add(log)
             db.commit()
 
-            # Feed synthetic flow events into the security engine so real detection & response occurs!
-            # We generate repeated probe packets so brute-force or scan detectors fire on the attacker
+            # Feed flow events into engine so real detection and response occurs
             flow_batch = [
                 FlowEvent(
                     ts=now_ts - (10 - i),

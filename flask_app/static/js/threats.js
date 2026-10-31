@@ -1,6 +1,6 @@
 /* ============================================
-   SENTINELSHIELD — THREATS JS
-   Threat Intelligence Logic with Bar Chart
+   SENTINELSHIELD — THREATS JS (Secured & Hardened)
+   Threat Intelligence Logic with Bar Chart & XSS Sanitization
    ============================================ */
 
 let threatBarChart = null;
@@ -54,9 +54,12 @@ function initThreatChart() {
 }
 
 function severityBadge(sev, riskScore = 0) {
-    const s = (sev || 'low').toLowerCase();
-    const scoreText = riskScore > 0 ? ` (${riskScore}%)` : '';
-    return `<span class="severity severity-${s}"><span class="severity-dot"></span>${sev}${scoreText}</span>`;
+    const raw = (sev || 'Low');
+    const safeSev = SentinelAPI.escapeHTML(raw);
+    const s = safeSev.toLowerCase();
+    const scoreVal = parseInt(riskScore, 10) || 0;
+    const scoreText = scoreVal > 0 ? ` (${scoreVal}%)` : '';
+    return `<span class="severity severity-${s}"><span class="severity-dot"></span>${safeSev}${scoreText}</span>`;
 }
 
 async function loadThreats() {
@@ -77,8 +80,8 @@ async function loadThreats() {
             else low++;
 
             if (typeCounts[t.type] !== undefined) typeCounts[t.type]++;
-            else if (t.type.includes('Beaconing')) typeCounts['Malware Attempt']++;
-            else if (t.type.includes('DNS')) typeCounts['Suspicious Login']++;
+            else if (t.type && t.type.includes('Beaconing')) typeCounts['Malware Attempt']++;
+            else if (t.type && t.type.includes('DNS')) typeCounts['Suspicious Login']++;
             else typeCounts['Port Scan']++;
         });
 
@@ -114,13 +117,19 @@ async function loadThreats() {
             const row = document.createElement("tr");
             if (threat.severity === 'High') row.classList.add('glow-alert');
 
-            const mitreTag = threat.mitre ? `<span style="font-family:var(--font-mono);font-size:10px;color:#38bdf8;margin-left:6px;background:rgba(56,189,248,0.1);padding:2px 6px;border-radius:4px">${threat.mitre}</span>` : '';
+            const timeSafe = SentinelAPI.escapeHTML(threat.time);
+            const ipSafe = SentinelAPI.escapeHTML(threat.ip);
+            const typeSafe = SentinelAPI.escapeHTML(threat.type);
+            const targetSafe = SentinelAPI.escapeHTML(threat.target);
+            const mitreClean = SentinelAPI.escapeHTML(threat.mitre);
+
+            const mitreTag = mitreClean ? `<span style="font-family:var(--font-mono);font-size:10px;color:#38bdf8;margin-left:6px;background:rgba(56,189,248,0.1);padding:2px 6px;border-radius:4px">${mitreClean}</span>` : '';
 
             row.innerHTML = `
-                <td style="font-family:var(--font-mono);font-size:12px;color:#64748b">${threat.time}</td>
-                <td><code style="color:#e2e8f0">${threat.ip}</code></td>
-                <td style="font-weight:500">${threat.type}${mitreTag}</td>
-                <td>${threat.target}</td>
+                <td style="font-family:var(--font-mono);font-size:12px;color:#64748b">${timeSafe}</td>
+                <td><code style="color:#e2e8f0">${ipSafe}</code></td>
+                <td style="font-weight:500">${typeSafe}${mitreTag}</td>
+                <td>${targetSafe}</td>
                 <td>${severityBadge(threat.severity, threat.risk_score)}</td>
             `;
 

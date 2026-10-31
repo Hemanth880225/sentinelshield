@@ -11,11 +11,12 @@ from fastapi.testclient import TestClient
 
 from app.database import (
     init_database, SessionLocal, DeviceModel, ThreatFindingModel,
-    AgentDecisionModel, EnforcementRuleModel, HoneypotModel
+    AgentDecisionModel, EnforcementRuleModel, HoneypotModel, SystemPolicyModel
 )
 from app.core.telemetry import FlowEvent, DnsEvent, DeviceEvent
 from app.services.security_engine import SecurityEngine
 from app.services.honeypot_service import HoneypotService
+from app.services.auth import ADMIN_API_KEY
 from fastapi_backend.api import app as fastapi_app
 from flask_app.app import app as flask_app
 
@@ -25,8 +26,23 @@ class SentinelIntegrationTests(unittest.TestCase):
     def setUpClass(cls):
         init_database()
         cls.engine = SecurityEngine(tenant_id="test-tenant", collector_id="test-col")
+        # Ensure test tenant has automatic policy for pipeline test
+        db = SessionLocal()
+        try:
+            pol = db.query(SystemPolicyModel).filter_by(tenant_id="test-tenant").first()
+            if not pol:
+                pol = SystemPolicyModel(tenant_id="test-tenant", autonomy="automatic", auto_threshold=70)
+                db.add(pol)
+            else:
+                pol.autonomy = "automatic"
+            db.commit()
+        finally:
+            db.close()
+
         cls.honeypot_svc = HoneypotService()
         cls.api_client = TestClient(fastapi_app)
+        # Authenticate test client with admin API key
+        cls.api_client.headers.update({"X-API-Key": ADMIN_API_KEY})
         cls.flask_client = flask_app.test_client()
 
     def test_01_telemetry_to_detection_to_enforcement_pipeline(self):
@@ -53,19 +69,16 @@ class SentinelIntegrationTests(unittest.TestCase):
 
         db = SessionLocal()
         try:
-            # Check finding was created
-            finding = db.query(ThreatFindingModel).filter_by(src_ip=attacker_ip).first()
+            finding = db.query(ThreatFindingModel).filter_by(tenant_id="test-tenant", src_ip=attacker_ip).first()
             self.assertIsNotNone(finding)
             self.assertEqual(finding.kind, "brute_force")
             self.assertGreater(finding.risk_score, 70)
 
-            # Check agent decision was recorded as auto-approved block
-            decision = db.query(AgentDecisionModel).filter_by(target=attacker_ip, status="auto_approved").first()
+            decision = db.query(AgentDecisionModel).filter_by(tenant_id="test-tenant", target=attacker_ip, status="auto_approved").first()
             self.assertIsNotNone(decision)
             self.assertEqual(decision.action, "block_ip")
 
-            # Check signed command was executed by local enforcement agent
-            rule = db.query(EnforcementRuleModel).filter_by(ip=attacker_ip).first()
+            rule = db.query(EnforcementRuleModel).filter_by(tenant_id="test-tenant", ip=attacker_ip).first()
             self.assertIsNotNone(rule)
             self.assertEqual(rule.action, "block_ip")
             self.assertEqual(rule.status, "active")
@@ -77,8 +90,8 @@ class SentinelIntegrationTests(unittest.TestCase):
         """Test human-in-the-loop authorization for sensitive action (isolate device)."""
         db = SessionLocal()
         try:
-            # Create a pending decision that needs approval
             rec = AgentDecisionModel(
+                tenant_id="test-tenant",
                 time_str="12:00:00",
                 event_type="detection",
                 status="needs_approval",
@@ -95,20 +108,17 @@ class SentinelIntegrationTests(unittest.TestCase):
         finally:
             db.close()
 
-        # Operator approves via security engine
         approve_res = self.engine.approve_decision(d_id, reviewer="lead-sec-ops")
         self.assertEqual(approve_res["outcome"], "applied")
         self.assertEqual(approve_res["target"], "192.168.1.50")
 
-        # Verify decision record was updated in a new session
         db2 = SessionLocal()
         try:
-            updated = db2.query(AgentDecisionModel).filter_by(id=d_id).first()
+            updated = db2.query(AgentDecisionModel).filter_by(tenant_id="test-tenant", id=d_id).first()
             self.assertEqual(updated.status, "approved")
             self.assertEqual(updated.reviewed_by, "lead-sec-ops")
 
-            # Verify rule was applied in agent
-            rule = db2.query(EnforcementRuleModel).filter_by(ip="192.168.1.50", action="isolate_device").first()
+            rule = db2.query(EnforcementRuleModel).filter_by(tenant_id="test-tenant", ip="192.168.1.50", action="isolate_device").first()
             self.assertIsNotNone(rule)
         finally:
             db2.close()
@@ -118,7 +128,8 @@ class SentinelIntegrationTests(unittest.TestCase):
         res = self.honeypot_svc.record_interaction(
             honeypot_code="HP-1",
             attacker_ip="192.0.2.99",
-            payload="SSH-2.0-ExploitPayload"
+            payload="SSH-2.0-ExploitPayload",
+            tenant_id="default"
         )
         self.assertEqual(res["id"], "HP-1")
         self.assertEqual(res["status"], "Triggered")
@@ -126,7 +137,7 @@ class SentinelIntegrationTests(unittest.TestCase):
 
         db = SessionLocal()
         try:
-            trap = db.query(HoneypotModel).filter_by(honeypot_code="HP-1").first()
+            trap = db.query(HoneypotModel).filter_by(tenant_id="default", honeypot_code="HP-1").first()
             self.assertEqual(trap.status, "Triggered")
             self.assertEqual(trap.attacker_ip, "192.0.2.99")
         finally:
@@ -188,7 +199,6 @@ class SentinelIntegrationTests(unittest.TestCase):
 
     def test_05_fastapi_ingestion_and_simulation(self):
         """Test telemetry ingestion endpoints on FastAPI."""
-        # Flow ingestion
         flow_payload = {
             "ts": time.time(),
             "src_ip": "10.0.0.5",
@@ -201,7 +211,6 @@ class SentinelIntegrationTests(unittest.TestCase):
         res = self.api_client.post("/api/telemetry/flow", json=flow_payload)
         self.assertEqual(res.status_code, 200)
 
-        # DNS ingestion
         dns_payload = {
             "ts": time.time(),
             "src_ip": "10.0.0.5",
@@ -210,10 +219,9 @@ class SentinelIntegrationTests(unittest.TestCase):
         res = self.api_client.post("/api/telemetry/dns", json=dns_payload)
         self.assertEqual(res.status_code, 200)
 
-        # Honeypot interaction via API
         hp_payload = {
             "honeypot_code": "HP-2",
-            "attacker_ip": "198.51.100.88",
+            "attacker_ip": "45.33.32.88",
             "payload": "USER admin"
         }
         res = self.api_client.post("/api/honeypots/interact", json=hp_payload)
@@ -225,7 +233,6 @@ class SentinelIntegrationTests(unittest.TestCase):
         for p in pages:
             res = self.flask_client.get(p)
             self.assertEqual(res.status_code, 200, f"Page {p} returned status {res.status_code}")
-            # Ensure visual brand SentinelShield is present
             self.assertIn(b"Sentinel", res.data)
 
     def test_07_flask_api_proxy_and_fallback(self):
