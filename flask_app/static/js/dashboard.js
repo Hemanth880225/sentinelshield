@@ -1,16 +1,19 @@
 /* ============================================
    SENTINELSHIELD — DASHBOARD JS
    SOC Dashboard Logic with Charts & Counters
+   Integrated with Centralized SentinelAPI
    ============================================ */
 
 /* ---- Animated Counter ---- */
 function animateCounter(el, target) {
+    if (!el) return;
+    if (target === undefined || target === null) return;
     const current = parseInt(el.textContent) || 0;
     if (current === target) return;
 
     const duration = 600;
     const start = performance.now();
-    const startVal = current === '--' ? 0 : current;
+    const startVal = isNaN(current) ? 0 : current;
 
     function step(timestamp) {
         const progress = Math.min((timestamp - start) / duration, 1);
@@ -24,7 +27,7 @@ function animateCounter(el, target) {
 
 /* ---- Protocol Badge Helper ---- */
 function protocolBadge(proto) {
-    const p = proto.toUpperCase();
+    const p = (proto || 'TCP').toUpperCase();
     return `<span class="badge badge-${p.toLowerCase()}">${p}</span>`;
 }
 
@@ -42,7 +45,7 @@ function initCharts() {
         threatDonutChart = new Chart(donutCtx, {
             type: 'doughnut',
             data: {
-                labels: ['Port Scan', 'Brute Force', 'Malware', 'Suspicious Login'],
+                labels: ['Port Scan', 'Brute Force', 'Malware Attempt', 'Suspicious Login'],
                 datasets: [{
                     data: [0, 0, 0, 0],
                     backgroundColor: [
@@ -125,41 +128,46 @@ function initCharts() {
 async function updateDashboard() {
     try {
         /* Status */
-        const statusRes = await fetch("/api/status");
-        const status = await statusRes.json();
+        const status = await SentinelAPI.getStatus();
 
         animateCounter(document.getElementById("devices_online"), status.devices_online);
         animateCounter(document.getElementById("threats_detected"), status.threats_detected);
         animateCounter(document.getElementById("honeypots_active"), status.honeypots_active);
 
         const netEl = document.getElementById("network_status");
-        netEl.textContent = status.network_status;
-        netEl.style.color = status.network_status === 'Secure' ? '#22c55e' : '#ef4444';
+        if (netEl) {
+            netEl.textContent = status.network_status;
+            netEl.style.color = status.network_status === 'Secure' ? '#22c55e' : (status.network_status === 'Elevated' ? '#f59e0b' : '#ef4444');
+        }
 
         /* Traffic */
-        const trafficRes = await fetch("/api/traffic");
-        const traffic = await trafficRes.json();
+        const traffic = await SentinelAPI.getTraffic(10);
 
         const table = document.getElementById("traffic-body");
-        table.innerHTML = "";
-
-        traffic.forEach(item => {
-            const row = document.createElement('tr');
-            row.innerHTML = `
-                <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#64748b">${item.time}</td>
-                <td><code style="color:#e2e8f0">${item.source}</code></td>
-                <td><code style="color:#e2e8f0">${item.destination}</code></td>
-                <td>${protocolBadge(item.protocol)}</td>
-                <td style="font-variant-numeric:tabular-nums">${item.size} B</td>
-            `;
-            table.appendChild(row);
-        });
+        if (table) {
+            table.innerHTML = "";
+            if (!traffic || traffic.length === 0) {
+                table.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#475569">No traffic packets captured yet</td></tr>';
+            } else {
+                traffic.forEach(item => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#64748b">${item.time}</td>
+                        <td><code style="color:#e2e8f0">${item.source}</code></td>
+                        <td><code style="color:#e2e8f0">${item.destination}</code></td>
+                        <td>${protocolBadge(item.protocol)}</td>
+                        <td style="font-variant-numeric:tabular-nums">${item.size} B</td>
+                    `;
+                    table.appendChild(row);
+                });
+            }
+        }
 
         /* Update traffic volume chart */
-        if (trafficLineChart) {
+        if (trafficLineChart && traffic && traffic.length > 0) {
             const now = new Date();
             const timeLabel = now.toLocaleTimeString('en-US', { hour12: false });
-            const totalSize = traffic.reduce((sum, t) => sum + t.size, 0);
+            const totalSize = traffic.reduce((sum, t) => sum + (t.size || 0), 0);
 
             trafficHistory.push({ time: timeLabel, value: totalSize });
             if (trafficHistory.length > MAX_HISTORY) trafficHistory.shift();
@@ -170,12 +178,16 @@ async function updateDashboard() {
         }
 
         /* Update threat donut with actual data from /threats */
-        const threatRes = await fetch("/api/threats");
-        const threats = await threatRes.json();
+        const threats = await SentinelAPI.getThreats();
 
-        if (threatDonutChart) {
+        if (threatDonutChart && threats) {
             const counts = { 'Port Scan': 0, 'Brute Force': 0, 'Malware Attempt': 0, 'Suspicious Login': 0 };
-            threats.forEach(t => { if (counts[t.type] !== undefined) counts[t.type]++; });
+            threats.forEach(t => {
+                if (counts[t.type] !== undefined) counts[t.type]++;
+                else if (t.type.includes('Beaconing')) counts['Malware Attempt']++;
+                else if (t.type.includes('DNS')) counts['Suspicious Login']++;
+                else counts['Port Scan']++;
+            });
 
             threatDonutChart.data.datasets[0].data = [
                 counts['Port Scan'],
@@ -187,7 +199,7 @@ async function updateDashboard() {
         }
 
     } catch (error) {
-        console.error("Dashboard update error:", error);
+        console.warn("Dashboard polling warning:", error.message);
     }
 }
 
@@ -196,5 +208,21 @@ async function updateDashboard() {
 document.addEventListener('DOMContentLoaded', () => {
     initCharts();
     updateDashboard();
+
+    // Start HTTP polling
     setInterval(updateDashboard, 3000);
+
+    // Also connect WebSocket for real-time push events
+    SentinelAPI.initWebSocket('dashboard', (event) => {
+        if (event && event.type === 'status_update') {
+            animateCounter(document.getElementById("devices_online"), event.data.devices_online);
+            animateCounter(document.getElementById("threats_detected"), event.data.threats_detected);
+            animateCounter(document.getElementById("honeypots_active"), event.data.honeypots_active);
+            const netEl = document.getElementById("network_status");
+            if (netEl) {
+                netEl.textContent = event.data.network_status;
+                netEl.style.color = event.data.network_status === 'Secure' ? '#22c55e' : '#ef4444';
+            }
+        }
+    });
 });

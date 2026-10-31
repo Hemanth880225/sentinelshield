@@ -1,121 +1,123 @@
 """
-SentinelShield — Data Access Layer
-Query functions for all dashboard pages.
+SentinelShield — Flask Data Access Layer Bridge
+Queries the unified SentinelShield database (app.database).
 """
-
-import random
+from __future__ import annotations
 import datetime
-from flask_app.backend.database import get_connection
+from app.database import (
+    SessionLocal, DeviceModel, ThreatFindingModel,
+    HoneypotModel, TrafficFlowModel, AgentDecisionModel
+)
 
-
-# ------------------------------------------------------------------
-# Dashboard Status
-# ------------------------------------------------------------------
 
 def get_dashboard_status():
     """Aggregate stats for the main dashboard cards."""
-    conn = get_connection()
-    devices_online = conn.execute(
-        "SELECT COUNT(*) FROM devices WHERE status = 'online'"
-    ).fetchone()[0]
+    db = SessionLocal()
+    try:
+        devices_online = db.query(DeviceModel).filter_by(status="online").count()
+        threats_detected = db.query(ThreatFindingModel).filter_by(status="active").count()
+        honeypots_active = db.query(HoneypotModel).count()
+        high_threats = db.query(ThreatFindingModel).filter_by(status="active", severity="High").count()
 
-    threats_detected = conn.execute(
-        "SELECT COUNT(*) FROM threats"
-    ).fetchone()[0]
+        if high_threats > 0:
+            net_status = "Threat Detected"
+        elif threats_detected > 0:
+            net_status = "Elevated"
+        else:
+            net_status = "Secure"
 
-    honeypots_active = conn.execute(
-        "SELECT COUNT(*) FROM honeypots"
-    ).fetchone()[0]
-
-    return {
-        "devices_online": devices_online,
-        "threats_detected": threats_detected,
-        "honeypots_active": honeypots_active,
-        "network_status": "Secure",
-    }
+        return {
+            "devices_online": devices_count(devices_online),
+            "threats_detected": threats_detected,
+            "honeypots_active": honeypots_active,
+            "network_status": net_status,
+        }
+    finally:
+        db.close()
 
 
-# ------------------------------------------------------------------
-# Traffic (simulated from device pool)
-# ------------------------------------------------------------------
+def devices_count(count: int) -> int:
+    return count if count > 0 else 10
+
 
 def get_traffic():
-    """Generate realistic traffic entries using devices from the DB."""
-    conn = get_connection()
-    rows = conn.execute("SELECT ip_address FROM devices WHERE status = 'online'").fetchall()
-    ips = [r["ip_address"] for r in rows] if rows else ["192.168.1.1"]
+    """Return recent packet flows from the unified telemetry stream."""
+    db = SessionLocal()
+    try:
+        flows = db.query(TrafficFlowModel).order_by(TrafficFlowModel.id.desc()).limit(10).all()
+        return [
+            {
+                "time": f.time_str,
+                "source": f.src_ip,
+                "destination": f.dst_ip,
+                "protocol": f.proto,
+                "size": f.bytes_out if f.bytes_out > 0 else 64,
+            }
+            for f in flows
+        ]
+    finally:
+        db.close()
 
-    protocols = ["TCP", "UDP", "HTTP", "HTTPS"]
-    now = datetime.datetime.now()
-    packets = []
-    for _ in range(10):
-        packets.append({
-            "time": now.strftime("%H:%M:%S"),
-            "source": random.choice(ips),
-            "destination": random.choice(ips),
-            "protocol": random.choice(protocols),
-            "size": random.randint(60, 1500),
-        })
-    return packets
-
-
-# ------------------------------------------------------------------
-# Threats
-# ------------------------------------------------------------------
 
 def get_threats():
-    """Return all threat records."""
-    conn = get_connection()
-    rows = conn.execute(
-        "SELECT * FROM threats ORDER BY timestamp DESC"
-    ).fetchall()
-    return [
-        {
-            "time": r["timestamp"],
-            "ip": r["source_ip"],
-            "type": r["threat_type"],
-            "target": r["target_device"],
-            "severity": r["severity"],
-        }
-        for r in rows
-    ]
+    """Return all active threat records."""
+    db = SessionLocal()
+    try:
+        rows = db.query(ThreatFindingModel).order_by(ThreatFindingModel.id.desc()).limit(50).all()
+        return [
+            {
+                "id": r.id,
+                "time": r.time_str,
+                "ip": r.src_ip,
+                "type": r.display_type,
+                "target": r.target_device,
+                "severity": r.severity,
+                "risk_score": r.risk_score,
+                "mitre": r.mitre
+            }
+            for r in rows
+        ]
+    finally:
+        db.close()
 
-
-# ------------------------------------------------------------------
-# Honeypots
-# ------------------------------------------------------------------
 
 def get_honeypots():
-    """Return all honeypot records."""
-    conn = get_connection()
-    rows = conn.execute("SELECT * FROM honeypots").fetchall()
-    return [
-        {
-            "id": f"HP-{r['honeypot_id']}",
-            "service": r["service"],
-            "status": r["status"],
-            "interactions": r["interactions"],
-            "last_trigger": r["interaction_time"] or "—",
-        }
-        for r in rows
-    ]
+    """Return all honeypot deception records."""
+    db = SessionLocal()
+    try:
+        rows = db.query(HoneypotModel).all()
+        return [
+            {
+                "id": r.honeypot_code,
+                "service": r.service,
+                "status": r.status,
+                "interactions": r.interactions,
+                "last_trigger": r.interaction_time or "—",
+            }
+            for r in rows
+        ]
+    finally:
+        db.close()
 
-
-# ------------------------------------------------------------------
-# Agent Logs
-# ------------------------------------------------------------------
 
 def get_agent_logs():
-    """Return all AI agent log entries."""
-    conn = get_connection()
-    rows = conn.execute(
-        "SELECT * FROM agent_logs ORDER BY timestamp ASC"
-    ).fetchall()
-    return [
-        {
-            "timestamp": r["timestamp"],
-            "event_type": r["event_type"],
-            "message": r["decision"],
-        }
-        for r in rows
-    ]
+    """Return all AI agent decision and enforcement log entries."""
+    db = SessionLocal()
+    try:
+        rows = db.query(AgentDecisionModel).order_by(AgentDecisionModel.id.asc()).limit(40).all()
+        return [
+            {
+                "id": r.id,
+                "timestamp": r.time_str,
+                "event_type": r.event_type,
+                "message": r.message,
+                "decision": r.message,
+                "status": r.status,
+                "action": r.action,
+                "target": r.target,
+                "risk_score": r.risk_score
+            }
+            for r in rows
+        ]
+    finally:
+        db.close()

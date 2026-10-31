@@ -1,10 +1,10 @@
 /* ============================================
    SENTINELSHIELD — HONEYPOTS JS
-   Deception System Monitor
+   Deception System Monitor & Interactive Decoys
    ============================================ */
 
 function statusBadge(status) {
-    const s = status.toLowerCase();
+    const s = (status || 'Active').toLowerCase();
     const cls = s === 'active' ? 'status-active' : 'status-triggered';
     return `<span class="status-badge ${cls}"><span class="status-dot"></span>${status}</span>`;
 }
@@ -13,28 +13,49 @@ function serviceIcon(service) {
     const icons = {
         'Fake SSH': '🔑',
         'Fake FTP': '📁',
-        'Fake Telnet': '🖥️'
+        'Fake Telnet': '🖥️',
+        'Fake HTTP': '🌐',
+        'Fake SMTP': '✉️'
     };
     return icons[service] || '🎭';
 }
 
+async function triggerProbe(honeypotId) {
+    try {
+        const attackerIps = ["198.51.100.23", "203.0.113.88", "185.220.101.5", "192.0.2.44"];
+        const randomAttacker = attackerIps[Math.floor(Math.random() * attackerIps.length)];
+        
+        await SentinelAPI.interactHoneypot(honeypotId, randomAttacker, "PROBE_SIMULATED");
+        await loadHoneypots();
+    } catch (e) {
+        console.error("Failed to trigger probe:", e);
+    }
+}
+
 async function loadHoneypots() {
     try {
-        const res = await fetch("/api/honeypots");
-        const data = await res.json();
+        const data = await SentinelAPI.getHoneypots();
+        if (!data) return;
 
         /* Summary counters */
-        document.getElementById("hp-total").textContent = data.length;
+        const totalEl = document.getElementById("hp-total");
+        if (totalEl) totalEl.textContent = data.length;
+
         let active = 0, triggered = 0;
         data.forEach(h => {
             if (h.status === 'Active') active++;
             else triggered++;
         });
-        document.getElementById("hp-active").textContent = active;
-        document.getElementById("hp-triggered").textContent = triggered;
+
+        const activeEl = document.getElementById("hp-active");
+        const trigEl = document.getElementById("hp-triggered");
+        if (activeEl) activeEl.textContent = active;
+        if (trigEl) trigEl.textContent = triggered;
 
         /* Card Grid */
         const grid = document.getElementById("honeypotGrid");
+        if (!grid) return;
+
         grid.innerHTML = "";
 
         data.forEach(h => {
@@ -45,7 +66,10 @@ async function loadHoneypots() {
             card.innerHTML = `
                 <div class="honeypot-card-header">
                     <span class="honeypot-id">${h.id}</span>
-                    ${statusBadge(h.status)}
+                    <div style="display:flex;align-items:center;gap:8px">
+                        ${statusBadge(h.status)}
+                        <button class="btn-probe" onclick="triggerProbe('${h.id}')" title="Simulate attacker interaction probe" style="background:rgba(139,92,246,0.15);border:1px solid rgba(139,92,246,0.4);color:#c084fc;border-radius:6px;padding:3px 8px;font-size:11px;cursor:pointer">Probe</button>
+                    </div>
                 </div>
                 <div class="honeypot-meta">
                     <div class="honeypot-meta-item">
@@ -74,8 +98,9 @@ async function loadHoneypots() {
 
         /* Table */
         const table = document.querySelector("#honeypotTable tbody");
-        table.innerHTML = "";
+        if (!table) return;
 
+        table.innerHTML = "";
         data.forEach(h => {
             const row = document.createElement("tr");
             row.innerHTML = `
@@ -89,9 +114,11 @@ async function loadHoneypots() {
         });
 
     } catch (error) {
-        console.error("Honeypot loading error:", error);
+        console.warn("Honeypot loading warning:", error.message);
     }
 }
 
-setInterval(loadHoneypots, 2000);
-loadHoneypots();
+document.addEventListener('DOMContentLoaded', () => {
+    loadHoneypots();
+    setInterval(loadHoneypots, 2500);
+});

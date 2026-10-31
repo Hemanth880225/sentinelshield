@@ -4,7 +4,7 @@
 
 <div class="page-header fade-in">
     <h1>🤖 Sentinel AI Decision Logs</h1>
-    <p>Autonomous agent decision audit trail and activity monitor</p>
+    <p>Autonomous agent decision audit trail, cryptographic command signing, and activity monitor</p>
 </div>
 
 <!-- Agent Status -->
@@ -23,11 +23,20 @@
     </div>
     <div class="stat-card" style="--card-accent:#8b5cf6">
         <div class="stat-label">AI Model</div>
-        <div style="margin-top:8px;color:#8b5cf6;font-weight:600;font-size:14px">SentinelNet v2.0</div>
+        <div style="margin-top:8px;color:#8b5cf6;font-weight:600;font-size:14px">SentinelNet v2.0 (Ed25519)</div>
+    </div>
+</div>
+
+<!-- Pending Actions Panel (Agentic Human-in-the-Loop) -->
+<div class="section-title">Pending Authorization Decisions</div>
+<div class="card fade-in" style="margin-bottom:24px;padding:16px 20px" id="pendingDecisionsCard">
+    <div id="pendingDecisionsList" style="display:flex;flex-direction:column;gap:12px">
+        <div style="color:var(--text-muted);font-size:13px">Loading pending security proposals...</div>
     </div>
 </div>
 
 <!-- Terminal Log -->
+<div class="section-title">Autonomous Agent Decision Stream</div>
 <div class="log-terminal fade-in">
     <div class="log-terminal-header">
         <div class="terminal-dots">

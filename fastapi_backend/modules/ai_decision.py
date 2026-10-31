@@ -1,15 +1,14 @@
+"""
+SentinelShield — AI Decision Log Bridge
+Fetches real agent decision and enforcement logs.
+"""
+from app.database import SessionLocal, AgentDecisionModel
+
+
 def get_agent_logs():
-
-    logs = [
-
-        "[Agent] Monitoring IoT network traffic",
-        "[Agent] Packet anomaly detected",
-        "[Agent] Port scan detected from attacker IP",
-        "[Agent] Deploying SSH honeypot",
-        "[Agent] Attacker interacting with honeypot",
-        "[Agent] Blocking malicious IP",
-        "[Agent] Network secured successfully"
-
-    ]
-
-    return logs
+    db = SessionLocal()
+    try:
+        logs = db.query(AgentDecisionModel).order_by(AgentDecisionModel.id.asc()).limit(30).all()
+        return [l.message for l in logs]
+    finally:
+        db.close()

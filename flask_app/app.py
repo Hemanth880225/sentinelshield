@@ -1,18 +1,29 @@
-from flask import Flask, render_template, jsonify
+"""
+SentinelShield — Flask Dashboard Application
+Serves SOC dashboard UI and bridges communication to the FastAPI backend.
+"""
+from __future__ import annotations
+import os
+import urllib.request
+import urllib.error
+import json
+from flask import Flask, render_template, jsonify, request, Response
+
+from app.database import init_database
+from flask_app.backend import models
+from app.services.security_engine import engine_instance
+from app.services.honeypot_service import honeypot_service
 
 app = Flask(__name__)
 
+# Initialize unified database on startup
+init_database()
 
-# --------------------------------------------------
-# Initialize SQLite Database on startup
-# --------------------------------------------------
-
-from flask_app.backend.database import init_db
-init_db()
+FASTAPI_URL = os.environ.get("FASTAPI_URL", "http://127.0.0.1:8000")
 
 
 # ==================================================
-# PAGE ROUTES (existing — unchanged)
+# PAGE ROUTES (Preserved exactly as designed)
 # ==================================================
 
 @app.route("/")
@@ -51,44 +62,76 @@ def agent_logs():
 
 
 # ==================================================
-# JSON API ROUTES (new — SQLite-backed)
+# API PROXY & UNIFIED ENDPOINTS
 # ==================================================
 
-from flask_app.backend import models
+@app.route("/api/<path:endpoint>", methods=["GET", "POST", "PUT", "DELETE"])
+def proxy_to_fastapi(endpoint):
+    """
+    Reverse proxy to FastAPI backend with zero-latency local fallback.
+    Maintains same-origin simplicity for the frontend while using FastAPI.
+    """
+    target_url = f"{FASTAPI_URL}/api/{endpoint}"
+    if request.query_string:
+        target_url += f"?{request.query_string.decode('utf-8')}"
+
+    try:
+        req_data = request.get_data() if request.method in ["POST", "PUT"] else None
+        headers = {k: v for k, v in request.headers if k.lower() not in ["host", "content-length"]}
+        
+        req = urllib.request.Request(
+            target_url,
+            data=req_data,
+            headers=headers,
+            method=request.method
+        )
+        
+        with urllib.request.urlopen(req, timeout=3.0) as resp:
+            content = resp.read()
+            return Response(content, status=resp.status, content_type=resp.headers.get("content-type", "application/json"))
+
+    except Exception:
+        # Fallback to local service directly if FastAPI is not yet listening
+        return local_api_fallback(endpoint)
 
 
-@app.route("/api/status")
-def api_status():
-    """Dashboard summary cards data."""
-    return jsonify(models.get_dashboard_status())
+def local_api_fallback(endpoint: str):
+    """Fallback handler that uses the Python backend services directly."""
+    if endpoint == "status":
+        return jsonify(models.get_dashboard_status())
+    elif endpoint == "traffic":
+        return jsonify(models.get_traffic())
+    elif endpoint == "threats":
+        return jsonify(models.get_threats())
+    elif endpoint == "honeypots":
+        return jsonify(models.get_honeypots())
+    elif endpoint == "logs":
+        return jsonify(models.get_agent_logs())
+    elif endpoint.startswith("decisions/") and endpoint.endswith("/approve") and request.method == "POST":
+        parts = endpoint.split("/")
+        try:
+            d_id = int(parts[1])
+            res = engine_instance.approve_decision(d_id, reviewer="admin")
+            return jsonify({"status": "approved", "enforcement": res})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 400
+    elif endpoint.startswith("decisions/") and endpoint.endswith("/deny") and request.method == "POST":
+        parts = endpoint.split("/")
+        try:
+            d_id = int(parts[1])
+            res = engine_instance.deny_decision(d_id, reviewer="admin")
+            return jsonify({"status": "denied", "result": res})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 400
+    elif endpoint == "honeypots/interact" and request.method == "POST":
+        data = request.get_json() or {}
+        code = data.get("honeypot_code", "HP-1")
+        ip = data.get("attacker_ip", "198.51.100.23")
+        res = honeypot_service.record_interaction(code, ip)
+        return jsonify({"status": "interaction_captured", "trap": res})
+
+    return jsonify({"error": f"Endpoint /api/{endpoint} not found"}), 404
 
 
-@app.route("/api/traffic")
-def api_traffic():
-    """Simulated network traffic using DB device pool."""
-    return jsonify(models.get_traffic())
-
-
-@app.route("/api/threats")
-def api_threats():
-    """All threat records from the database."""
-    return jsonify(models.get_threats())
-
-
-@app.route("/api/honeypots")
-def api_honeypots():
-    """All honeypot records from the database."""
-    return jsonify(models.get_honeypots())
-
-
-@app.route("/api/logs")
-def api_logs():
-    """AI agent decision logs from the database."""
-    return jsonify(models.get_agent_logs())
-
-
-# --------------------------------------------------
-# Run Flask alone (for testing)
-# --------------------------------------------------
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)

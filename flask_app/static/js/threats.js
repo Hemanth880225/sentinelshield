@@ -1,6 +1,6 @@
 /* ============================================
    SENTINELSHIELD — THREATS JS
-   Threat Intelligence Logic with Chart
+   Threat Intelligence Logic with Bar Chart
    ============================================ */
 
 let threatBarChart = null;
@@ -53,18 +53,20 @@ function initThreatChart() {
     });
 }
 
-function severityBadge(sev) {
-    const s = sev.toLowerCase();
-    return `<span class="severity severity-${s}"><span class="severity-dot"></span>${sev}</span>`;
+function severityBadge(sev, riskScore = 0) {
+    const s = (sev || 'low').toLowerCase();
+    const scoreText = riskScore > 0 ? ` (${riskScore}%)` : '';
+    return `<span class="severity severity-${s}"><span class="severity-dot"></span>${sev}${scoreText}</span>`;
 }
 
 async function loadThreats() {
     try {
-        const res = await fetch("/api/threats");
-        const data = await res.json();
+        const data = await SentinelAPI.getThreats();
+        if (!data) return;
 
         /* Summary cards */
-        document.getElementById("threat-total").textContent = data.length;
+        const totalEl = document.getElementById("threat-total");
+        if (totalEl) totalEl.textContent = data.length;
 
         let high = 0, med = 0, low = 0;
         const typeCounts = { 'Port Scan': 0, 'Brute Force': 0, 'Malware Attempt': 0, 'Suspicious Login': 0 };
@@ -73,12 +75,19 @@ async function loadThreats() {
             if (t.severity === 'High') high++;
             else if (t.severity === 'Medium') med++;
             else low++;
+
             if (typeCounts[t.type] !== undefined) typeCounts[t.type]++;
+            else if (t.type.includes('Beaconing')) typeCounts['Malware Attempt']++;
+            else if (t.type.includes('DNS')) typeCounts['Suspicious Login']++;
+            else typeCounts['Port Scan']++;
         });
 
-        document.getElementById("threat-high").textContent = high;
-        document.getElementById("threat-medium").textContent = med;
-        document.getElementById("threat-low").textContent = low;
+        const highEl = document.getElementById("threat-high");
+        const medEl = document.getElementById("threat-medium");
+        const lowEl = document.getElementById("threat-low");
+        if (highEl) highEl.textContent = high;
+        if (medEl) medEl.textContent = med;
+        if (lowEl) lowEl.textContent = low;
 
         /* Chart */
         if (threatBarChart) {
@@ -93,30 +102,38 @@ async function loadThreats() {
 
         /* Table */
         const table = document.querySelector("#threatTable tbody");
-        table.innerHTML = "";
+        if (!table) return;
 
+        if (data.length === 0) {
+            table.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#475569">No threat vectors detected in current session</td></tr>';
+            return;
+        }
+
+        table.innerHTML = "";
         data.forEach(threat => {
             const row = document.createElement("tr");
             if (threat.severity === 'High') row.classList.add('glow-alert');
 
+            const mitreTag = threat.mitre ? `<span style="font-family:var(--font-mono);font-size:10px;color:#38bdf8;margin-left:6px;background:rgba(56,189,248,0.1);padding:2px 6px;border-radius:4px">${threat.mitre}</span>` : '';
+
             row.innerHTML = `
                 <td style="font-family:var(--font-mono);font-size:12px;color:#64748b">${threat.time}</td>
                 <td><code style="color:#e2e8f0">${threat.ip}</code></td>
-                <td style="font-weight:500">${threat.type}</td>
+                <td style="font-weight:500">${threat.type}${mitreTag}</td>
                 <td>${threat.target}</td>
-                <td>${severityBadge(threat.severity)}</td>
+                <td>${severityBadge(threat.severity, threat.risk_score)}</td>
             `;
 
             table.appendChild(row);
         });
 
     } catch (error) {
-        console.error("Threat loading error:", error);
+        console.warn("Threat loading warning:", error.message);
     }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
     initThreatChart();
     loadThreats();
-    setInterval(loadThreats, 2000);
+    setInterval(loadThreats, 2500);
 });

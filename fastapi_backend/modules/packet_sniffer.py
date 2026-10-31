@@ -1,30 +1,23 @@
-import random
-import datetime
+"""
+SentinelShield — Packet Sniffer & Flow Bridge
+Fetches real telemetry packets from the database.
+"""
+from app.database import SessionLocal, TrafficFlowModel
 
 
 def capture_packets():
-
-    packets = []
-
-    for _ in range(10):
-
-        packets.append({
-
-            "time": datetime.datetime.now().strftime("%H:%M:%S"),
-
-            "source": f"192.168.1.{random.randint(2,200)}",
-
-            "destination": f"192.168.1.{random.randint(2,200)}",
-
-            "protocol": random.choice([
-                "TCP",
-                "UDP",
-                "HTTP",
-                "HTTPS"
-            ]),
-
-            "size": random.randint(60,1500)
-
-        })
-
-    return packets
+    db = SessionLocal()
+    try:
+        flows = db.query(TrafficFlowModel).order_by(TrafficFlowModel.id.desc()).limit(10).all()
+        return [
+            {
+                "time": f.time_str,
+                "source": f.src_ip,
+                "destination": f.dst_ip,
+                "protocol": f.proto,
+                "size": f.bytes_out if f.bytes_out > 0 else 64
+            }
+            for f in flows
+        ]
+    finally:
+        db.close()
