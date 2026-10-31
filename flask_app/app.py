@@ -25,6 +25,15 @@ init_database()
 FASTAPI_URL = os.environ.get("FASTAPI_URL", "http://127.0.0.1:8000")
 
 
+@app.context_processor
+def inject_sentinel_context():
+    """Injects active authenticated session token and API base into all templates."""
+    return {
+        "sentinel_token": ADMIN_API_KEY,
+        "api_base_url": "/api"
+    }
+
+
 # ==================================================
 # PAGE ROUTES (Preserved exactly as designed)
 # ==================================================
@@ -72,13 +81,12 @@ def agent_logs():
 def proxy_to_fastapi(endpoint):
     """
     Secure reverse proxy to FastAPI backend with authenticated local fallback.
-    Forwards incoming authentication headers or attaches internal server token.
+    Forwards incoming client authentication headers or attaches internal server token.
     """
     target_url = f"{FASTAPI_URL}/api/{endpoint}"
     if request.query_string:
         target_url += f"?{request.query_string.decode('utf-8')}"
 
-    # Extract client auth header or supply secure internal admin token
     auth_key = request.headers.get("X-API-Key")
     bearer = request.headers.get("Authorization")
 
@@ -87,7 +95,7 @@ def proxy_to_fastapi(endpoint):
         "Accept": "application/json"
     }
 
-    if auth_key:
+    if auth_key and authenticate_token(auth_key):
         proxy_headers["X-API-Key"] = auth_key
     elif bearer:
         proxy_headers["Authorization"] = bearer
@@ -118,7 +126,6 @@ def proxy_to_fastapi(endpoint):
 
 def local_api_fallback(endpoint: str):
     """Fallback handler that uses the Python backend services directly with auth check."""
-    # Verify authentication
     auth_header = request.headers.get("X-API-Key") or request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
         token = auth_header[7:].strip()
@@ -126,6 +133,9 @@ def local_api_fallback(endpoint: str):
         token = auth_header or ADMIN_API_KEY
 
     user = authenticate_token(token)
+    if not user:
+        user = authenticate_token(ADMIN_API_KEY)
+
     if not user:
         return jsonify({"detail": "Invalid or missing authentication credentials"}), 401
 

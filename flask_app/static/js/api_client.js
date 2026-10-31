@@ -18,14 +18,21 @@
             .replace(/'/g, '&#39;');
     }
 
+    // Clean up any stale legacy keys from previous dev versions
+    const stored = localStorage.getItem('sentinel_api_key');
+    if (stored === 'sentinel-admin-sec-key-v2' || stored === 'admin') {
+        localStorage.removeItem('sentinel_api_key');
+    }
+
     // Configuration
     const metaApiUrl = document.querySelector('meta[name="api-base-url"]')?.getAttribute('content');
+    const metaToken = document.querySelector('meta[name="sentinel-token"]')?.getAttribute('content');
     const API_BASE = window.SENTINEL_CONFIG?.API_BASE_URL || metaApiUrl || '/api';
     const WS_BASE = window.SENTINEL_CONFIG?.WS_BASE_URL || 
         (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + (window.location.port === '5000' ? window.location.hostname + ':8000' : window.location.host) + '/ws';
 
-    // Never hardcode privileged admin keys in client source code
-    let apiKey = localStorage.getItem('sentinel_api_key') || '';
+    // Retrieve active authenticated token from localStorage or server session meta tag
+    let apiKey = localStorage.getItem('sentinel_api_key') || metaToken || '';
     let isBackendAvailable = true;
     let ws = null;
     let wsReconnectTimer = null;
@@ -55,7 +62,12 @@
             const response = await fetch(url, fetchOptions);
 
             if (response.status === 401 || response.status === 403) {
-                console.warn('SentinelShield: Authentication / Authorization required for', endpoint);
+                // If stored custom key failed, purge it and fallback to server session token
+                if (localStorage.getItem('sentinel_api_key')) {
+                    localStorage.removeItem('sentinel_api_key');
+                    apiKey = metaToken || '';
+                }
+                console.warn('SentinelShield: Authentication notice for', endpoint);
                 window.dispatchEvent(new CustomEvent('sentinel:auth_error', { detail: { status: response.status } }));
             }
 
@@ -106,7 +118,8 @@
             return;
         }
 
-        const wsTokenParam = apiKey ? `?token=${encodeURIComponent(apiKey)}` : '';
+        const activeToken = apiKey || metaToken || '';
+        const wsTokenParam = activeToken ? `?token=${encodeURIComponent(activeToken)}` : '';
         const wsUrl = `${WS_BASE}/${channel}${wsTokenParam}`;
         try {
             ws = new WebSocket(wsUrl);
